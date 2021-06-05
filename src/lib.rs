@@ -1,7 +1,7 @@
-pub mod control;
 pub mod download;
 pub mod get_status;
 pub mod memory_layout;
+pub mod reset;
 pub mod sync;
 
 use std::fmt;
@@ -21,11 +21,22 @@ pub enum Error {
     MaximumChunksExceeded,
     #[error("Not enough space on device.")]
     NoSpaceLeft,
+    #[error("Unrecognized status code: {0}")]
+    UnrecognizedStatusCode(u8),
+    #[error("Unrecognized state code: {0}")]
+    UnrecognizedStateCode(u8),
+    #[error("Device response is too short (got: {got:?}, expected: {expected:?}).")]
+    ResponseTooShort { got: usize, expected: usize },
+    #[error("Device status is in error: {0}")]
+    StatusError(Status),
+    #[error("Device state is in error: {0}")]
+    StateError(State),
 }
 
 pub trait DfuIo {
     type Read;
     type Write;
+    type Reset;
     type Error: From<Error>;
 
     fn read_control(
@@ -33,7 +44,9 @@ pub trait DfuIo {
         request_type: u8,
         request: u8,
         value: u16,
+        buffer: &mut [u8],
     ) -> Result<Self::Read, Self::Error>;
+
     fn write_control(
         &self,
         request_type: u8,
@@ -41,45 +54,57 @@ pub trait DfuIo {
         value: u16,
         buffer: &[u8],
     ) -> Result<Self::Write, Self::Error>;
+
+    fn usb_reset(&self) -> Result<Self::Reset, Self::Error>;
+
+    fn memory_layout(&self) -> &memory_layout::mem;
 }
 
-pub struct DfuSansIo<'mem, IO> {
+pub struct DfuSansIo<IO> {
     io: IO,
-    memory_layout: &'mem memory_layout::mem,
+    address: u32,
     transfer_size: u32,
 }
 
-impl<'mem, IO: DfuIo> DfuSansIo<'mem, IO> {
-    pub fn new(io: IO, memory_layout: &'mem memory_layout::mem, transfer_size: u32) -> Self {
+impl<IO: DfuIo> DfuSansIo<IO> {
+    pub fn new(io: IO, address: u32, transfer_size: u32) -> Self {
         Self {
             io,
-            memory_layout,
+            address,
             transfer_size,
         }
     }
 
     pub fn download<'dfu>(
         &'dfu self,
-        address: u32,
-        length: impl Into<Option<usize>>,
-    ) -> get_status::ClearStatus<
-        'dfu,
-        'mem,
-        IO,
-        get_status::GetStatus<'dfu, 'mem, IO, download::Start<'dfu, 'mem, IO>>,
+        length: u32,
+    ) -> Result<
+        reset::UsbReset<
+            'dfu,
+            IO,
+            get_status::ClearStatus<
+                'dfu,
+                IO,
+                get_status::GetStatus<'dfu, IO, download::Start<'dfu, IO>>,
+            >,
+        >,
+        Error,
     > {
-        get_status::ClearStatus {
+        Ok(reset::UsbReset {
             dfu: self,
-            chained_command: get_status::GetStatus {
+            chained_command: get_status::ClearStatus {
                 dfu: self,
-                chained_command: download::Start {
+                chained_command: get_status::GetStatus {
                     dfu: self,
-                    memory_layout: self.memory_layout,
-                    address,
-                    length: length.into(),
+                    chained_command: download::Start {
+                        dfu: self,
+                        memory_layout: self.io.memory_layout(),
+                        address: self.address,
+                        end_pos: self.address.checked_add(length).ok_or(Error::NoSpaceLeft)?,
+                    },
                 },
             },
-        }
+        })
     }
 }
 
@@ -101,6 +126,7 @@ pub enum Status {
     ErrPor,
     ErrUnknown,
     ErrStalledpkt,
+    Other(u8),
 }
 
 impl fmt::Display for Status {
@@ -127,8 +153,20 @@ impl fmt::Display for Status {
                 ErrPor => "Device detected unexpected power on reset.",
                 ErrUnknown => "Something went wrong, but the device does not know what it was.",
                 ErrStalledpkt => "Device stalled an unexpected request.",
+                // TODO format code
+                Other(_) => "Other status",
             }
         )
+    }
+}
+
+impl Status {
+    pub(crate) fn raise_error(&self) -> Result<(), Error> {
+        if !matches!(self, Status::Ok) {
+            Err(Error::StatusError(*self))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -145,6 +183,7 @@ pub enum State {
     DfuManifestWaitReset,
     DfuUploadIdle,
     DfuError,
+    Other(u8),
 }
 
 impl fmt::Display for State {
@@ -166,8 +205,20 @@ impl fmt::Display for State {
                 DfuManifestWaitReset => "Device has programmed its memories and is waiting for a USB reset or a power on reset.  (Devices that must enter this state clear bitManifestationTolerant to 0.)",
                 DfuUploadIdle => "The device is processing an upload operation.  Expecting DFU_UPLOAD requests.",
                 DfuError => "An error has occurred. Awaiting the DFU_CLRSTATUS request.",
+                // TODO format code
+                Other(_) => "Other state",
             },
         )
+    }
+}
+
+impl State {
+    pub(crate) fn raise_error(&self) -> Result<(), Error> {
+        if matches!(self, State::DfuError) {
+            Err(Error::StateError(*self))
+        } else {
+            Ok(())
+        }
     }
 }
 
@@ -178,17 +229,13 @@ pub trait ChainedCommand {
     fn chain(self, arg: Self::Arg) -> Self::Into;
 }
 
-pub trait ChainedCommandBytes {
-    type Into;
-
-    fn chain(self, bytes: &[u8]) -> Self::Into;
-}
-
-pub mod dfu_libusb {
+#[cfg(test)]
+mod tests {
     use crate as dfu_core;
+    use std::cell::RefCell;
     use thiserror::Error;
 
-    pub type Dfu<'usb, 'mem> = dfu_core::sync::DfuSync<'mem, DfuLibusb<'usb>>;
+    pub type Dfu<'usb> = dfu_core::sync::DfuSync<DfuLibusb<'usb>, Error>;
 
     #[derive(Debug, Error)]
     pub enum Error {
@@ -196,17 +243,25 @@ pub mod dfu_libusb {
         CouldNotOpenDevice,
         #[error(transparent)]
         Dfu(#[from] dfu_core::Error),
+        #[error(transparent)]
+        Io(#[from] std::io::Error),
+        #[error("Could not parse memory layout: {0}")]
+        MemoryLayout(String),
+        #[error("libusb: {0}")]
+        LibUsb(#[from] libusb::Error),
     }
 
     pub struct DfuLibusb<'usb> {
-        usb: libusb::DeviceHandle<'usb>,
-        buffer: bytes::BytesMut,
+        usb: RefCell<libusb::DeviceHandle<'usb>>,
         memory_layout: dfu_core::memory_layout::MemoryLayout,
+        timeout: std::time::Duration,
+        index: u16,
     }
 
     impl<'usb> dfu_core::DfuIo for DfuLibusb<'usb> {
-        type Read = ();
+        type Read = usize;
         type Write = usize;
+        type Reset = ();
         type Error = Error;
 
         #[allow(unused_variables)]
@@ -215,8 +270,27 @@ pub mod dfu_libusb {
             request_type: u8,
             request: u8,
             value: u16,
+            buffer: &mut [u8],
         ) -> Result<Self::Read, Self::Error> {
-            todo!()
+            // TODO: do or do not?
+            let request_type = request_type | 0x80;
+            //println!("read {:b} {} {}", request_type, request, value);
+            let res = self.usb.borrow().read_control(
+                request_type,
+                request,
+                value,
+                self.index,
+                buffer,
+                self.timeout,
+            );
+            //println!("read response {:x?}", &buffer);
+            assert!(
+                !matches!(res, Err(libusb::Error::InvalidParam)),
+                "invalid param: {:08b} {:?}",
+                request_type,
+                res,
+            );
+            Ok(res?)
         }
 
         #[allow(unused_variables)]
@@ -227,52 +301,98 @@ pub mod dfu_libusb {
             value: u16,
             buffer: &[u8],
         ) -> Result<Self::Write, Self::Error> {
-            todo!()
+            //println!("write {:b} {} {} {:x?}", request_type, request, value, buffer);
+            let res = self.usb.borrow().write_control(
+                request_type,
+                request,
+                value,
+                self.index,
+                buffer,
+                self.timeout,
+            );
+            assert!(
+                !matches!(res, Err(libusb::Error::InvalidParam)),
+                "invalid param: {:08b}",
+                request_type,
+            );
+            Ok(res?)
+        }
+
+        fn usb_reset(&self) -> Result<Self::Reset, Self::Error> {
+            Ok(self.usb.borrow_mut().reset()?)
+        }
+
+        fn memory_layout(&self) -> &dfu_core::memory_layout::mem {
+            &self.memory_layout
         }
     }
 
     impl<'usb> DfuLibusb<'usb> {
-        pub fn open<'mem>(
+        pub fn open(
             context: &'usb libusb::Context,
             vid: u16,
             pid: u16,
-        ) -> Result<Dfu<'usb, 'mem>, Error> {
+        ) -> Result<Dfu<'usb>, Error> {
             let usb = context
                 .open_device_with_vid_pid(vid, pid)
                 .ok_or(Error::CouldNotOpenDevice)?;
-            let transfer_size: u32 = todo!();
+            let (index, address, transfer_size, memory_layout) = Self::query_device(&usb)?;
             let buffer = bytes::BytesMut::with_capacity(transfer_size as usize);
-            let memory_layout: dfu_core::memory_layout::MemoryLayout = todo!();
+            let timeout = std::time::Duration::from_secs(3);
             let io = DfuLibusb {
-                usb,
-                buffer,
+                usb: RefCell::new(usb),
                 memory_layout,
+                timeout,
+                index,
             };
 
-            Ok(dfu_core::sync::DfuSync::new(
-                io,
-                io.memory_layout.as_ref(),
-                transfer_size,
+            Ok(dfu_core::sync::DfuSync::new(io, address, transfer_size))
+        }
+
+        fn query_device(
+            usb: &libusb::DeviceHandle<'usb>,
+        ) -> Result<(u16, u32, u32, dfu_core::memory_layout::MemoryLayout), Error> {
+            use std::convert::TryFrom;
+
+            // TODO
+            Ok((
+                0,
+                0x08000000,
+                2048,
+                dfu_core::memory_layout::MemoryLayout::try_from("04*032Kg,01*128Kg,07*256Kg")
+                    .map_err(|err| Error::MemoryLayout(err.to_string()))?,
             ))
         }
     }
 
-    #[allow(unused_variables)]
-    pub fn test() -> Result<(), Box<dyn std::error::Error>> {
-        let context = libusb::Context::new()?;
-        let device: Dfu = DfuLibusb::open(&context, 0x0483, 0xdf11)?;
-        Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use crate as dfu_core;
-
     #[test]
     #[should_panic]
     fn ensure_io_can_be_made_into_an_object() {
-        let boxed: Box<dyn dfu_core::DfuIo<Read = (), Write = (), Error = dfu_core::Error>> =
-            todo!();
+        let boxed: Box<
+            dyn dfu_core::DfuIo<Read = (), Write = (), Reset = (), Error = dfu_core::Error>,
+        > = panic!();
+    }
+
+    #[test]
+    #[allow(unused_variables)]
+    pub fn test() {
+        let context = libusb::Context::new().unwrap();
+        let file = std::fs::File::open("/home/cecile/Downloads/SV-F777-v0.0.8.16.bin").unwrap();
+        //let file = std::fs::File::open("/home/cecile/repos/dfuflash/testfile").unwrap();
+
+        use std::cell::RefCell;
+        use std::rc::Rc;
+        let file_size = 840516;
+        let progress = Rc::new(RefCell::new(0));
+
+        let mut device: Dfu = DfuLibusb::open(&context, 0x0483, 0xdf11).unwrap();
+        device = device.with_progress(move |count| {
+            *progress.borrow_mut() += count;
+            println!("{}/{}", *progress.borrow(), file_size);
+        });
+
+        if let Err(err) = device.download(file, file_size) {
+            panic!("{}", err);
+        }
     }
 }

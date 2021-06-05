@@ -33,6 +33,12 @@ impl MemoryLayout {
     }
 }
 
+impl From<Vec<MemoryPage>> for MemoryLayout {
+    fn from(vec: Vec<MemoryPage>) -> Self {
+        Self(vec)
+    }
+}
+
 impl std::ops::Deref for MemoryLayout {
     type Target = Vec<MemoryPage>;
 
