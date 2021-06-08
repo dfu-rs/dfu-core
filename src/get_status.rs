@@ -7,6 +7,7 @@ const DFU_CLRSTATUS: u8 = 4;
 
 pub(crate) type PollTimeout = u64;
 pub(crate) type Index = u8;
+// TODO make a struct?
 pub(crate) type GetStatusMessage = (Status, PollTimeout, State, Index);
 
 #[must_use]

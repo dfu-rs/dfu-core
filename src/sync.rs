@@ -3,7 +3,7 @@ use super::*;
 pub struct DfuSync<IO, E>
 where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
-    E: From<std::io::Error> + From<crate::Error>,
+    E: From<std::io::Error> + From<Error>,
 {
     dfu: DfuSansIo<IO>,
     buffer: Vec<u8>,
@@ -13,7 +13,7 @@ where
 impl<IO, E> DfuSync<IO, E>
 where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
-    E: From<std::io::Error> + From<crate::Error>,
+    E: From<std::io::Error> + From<Error>,
 {
     pub fn new(io: IO, address: u32, transfer_size: u32) -> Self {
         Self {
@@ -34,11 +34,9 @@ where
 impl<IO, E> DfuSync<IO, E>
 where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
-    E: From<std::io::Error> + From<crate::Error>,
+    E: From<std::io::Error> + From<Error>,
 {
     pub fn download<R: std::io::Read>(&mut self, reader: R, length: u32) -> Result<(), IO::Error> {
-        use crate::download;
-        use crate::get_status;
         use std::io::BufRead;
 
         let mut reader = std::io::BufReader::with_capacity(self.dfu.transfer_size as usize, reader);
