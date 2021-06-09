@@ -16,6 +16,7 @@ impl<'dfu, IO: DfuIo> ChainedCommand for Start<'dfu, IO> {
     type Into = Result<DownloadLoop<'dfu, IO>, Error>;
 
     fn chain(self, (_status, _poll_timeout, state, _index): Self::Arg) -> Self::Into {
+        // TODO startup can be in AppIdle in which case the Detach-Attach process needs to be done
         if state == State::DfuIdle {
             Ok(DownloadLoop {
                 dfu: self.dfu,
@@ -224,7 +225,7 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
                 got: bytes.len(),
                 expected: u32::MAX as usize,
             })?
-            .min(self.dfu.transfer_size);
+            .min(self.dfu.io.functional_descriptor().transfer_size as u32);
 
         let next = get_status::WaitState {
             dfu: &self.dfu,

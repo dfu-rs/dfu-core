@@ -121,18 +121,20 @@ pub struct WaitState<'dfu, IO: DfuIo, T> {
 pub enum Step<'dfu, IO: DfuIo, T> {
     Break(T),
     Wait(GetStatus<'dfu, IO, WaitState<'dfu, IO, T>>, PollTimeout),
-    WaitManifest(WaitManifest<'dfu, IO, WaitState<'dfu, IO, T>>),
+    ManifestWaitReset(Option<reset::UsbReset<'dfu, IO, ()>>),
 }
 
 impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
     pub fn next(self) -> Step<'dfu, IO, T> {
+        let func_desc = self.dfu.io.functional_descriptor();
+
         if self.end {
             Step::Break(self.chained_command)
-        } else if self.in_manifest {
-            Step::WaitManifest(WaitManifest {
+        } else if self.in_manifest && !func_desc.manifestation_tolerant {
+            Step::ManifestWaitReset((!func_desc.will_detach).then(|| reset::UsbReset {
                 dfu: self.dfu,
-                chained_command: self,
-            })
+                chained_command: (),
+            }))
         } else {
             let poll_timeout = self.poll_timeout;
 
@@ -159,35 +161,6 @@ impl<'dfu, IO: DfuIo, T> ChainedCommand for WaitState<'dfu, IO, T> {
             end: state == self.state,
             poll_timeout,
             in_manifest: state == State::DfuManifest,
-        }
-    }
-}
-
-#[must_use]
-pub struct WaitManifest<'dfu, IO: DfuIo, T: ChainedCommand<Arg = GetStatusMessage>> {
-    pub(crate) dfu: &'dfu DfuSansIo<IO>,
-    pub(crate) chained_command: T,
-}
-
-pub enum WaitManifestStep<'dfu, IO: DfuIo, T: ChainedCommand<Arg = GetStatusMessage>> {
-    StatusReceived(GetStatusRecv<T>, IO::Read),
-    StatusNotReceived(WaitManifest<'dfu, IO, T>),
-}
-
-impl<'dfu, IO: DfuIo, T: ChainedCommand<Arg = GetStatusMessage>> WaitManifest<'dfu, IO, T> {
-    pub fn get_status_manifest(self, buffer: &mut [u8]) -> WaitManifestStep<'dfu, IO, T> {
-        debug_assert!(buffer.len() >= 6);
-        if let Ok(res) = self
-            .dfu
-            .io
-            .read_control(REQUEST_TYPE, DFU_GETSTATUS, 0, buffer)
-        {
-            let next = GetStatusRecv {
-                chained_command: self.chained_command,
-            };
-            WaitManifestStep::StatusReceived(next, res)
-        } else {
-            WaitManifestStep::StatusNotReceived(self)
         }
     }
 }

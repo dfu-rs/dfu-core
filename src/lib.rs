@@ -1,4 +1,6 @@
+pub mod detach;
 pub mod download;
+pub mod functional_descriptor;
 pub mod get_status;
 pub mod memory_layout;
 pub mod reset;
@@ -58,50 +60,40 @@ pub trait DfuIo {
     fn usb_reset(&self) -> Result<Self::Reset, Self::Error>;
 
     fn memory_layout(&self) -> &memory_layout::mem;
+
+    fn functional_descriptor(&self) -> &functional_descriptor::FunctionalDescriptor;
 }
 
 pub struct DfuSansIo<IO> {
     io: IO,
     address: u32,
-    transfer_size: u32,
 }
 
 impl<IO: DfuIo> DfuSansIo<IO> {
-    pub fn new(io: IO, address: u32, transfer_size: u32) -> Self {
-        Self {
-            io,
-            address,
-            transfer_size,
-        }
+    pub fn new(io: IO, address: u32) -> Self {
+        Self { io, address }
     }
 
     pub fn download<'dfu>(
         &'dfu self,
         length: u32,
     ) -> Result<
-        reset::UsbReset<
+        get_status::ClearStatus<
             'dfu,
             IO,
-            get_status::ClearStatus<
-                'dfu,
-                IO,
-                get_status::GetStatus<'dfu, IO, download::Start<'dfu, IO>>,
-            >,
+            get_status::GetStatus<'dfu, IO, download::Start<'dfu, IO>>,
         >,
         Error,
     > {
-        Ok(reset::UsbReset {
+        Ok(get_status::ClearStatus {
             dfu: self,
-            chained_command: get_status::ClearStatus {
+            chained_command: get_status::GetStatus {
                 dfu: self,
-                chained_command: get_status::GetStatus {
+                chained_command: download::Start {
                     dfu: self,
-                    chained_command: download::Start {
-                        dfu: self,
-                        memory_layout: self.io.memory_layout(),
-                        address: self.address,
-                        end_pos: self.address.checked_add(length).ok_or(Error::NoSpaceLeft)?,
-                    },
+                    memory_layout: self.io.memory_layout(),
+                    address: self.address,
+                    end_pos: self.address.checked_add(length).ok_or(Error::NoSpaceLeft)?,
                 },
             },
         })
@@ -162,7 +154,7 @@ impl fmt::Display for Status {
 
 impl Status {
     pub(crate) fn raise_error(&self) -> Result<(), Error> {
-        if !matches!(self, Status::Ok) {
+        if !matches!(self, Status::Ok | Status::Other(_)) {
             Err(Error::StatusError(*self))
         } else {
             Ok(())

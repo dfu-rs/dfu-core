@@ -15,10 +15,12 @@ where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
-    pub fn new(io: IO, address: u32, transfer_size: u32) -> Self {
+    pub fn new(io: IO, address: u32) -> Self {
+        let transfer_size = io.functional_descriptor().transfer_size as usize;
+
         Self {
-            dfu: DfuSansIo::new(io, address, transfer_size),
-            buffer: vec![0x00; transfer_size as usize],
+            dfu: DfuSansIo::new(io, address),
+            buffer: vec![0x00; transfer_size],
             progress: None,
         }
     }
@@ -39,17 +41,12 @@ where
     pub fn download<R: std::io::Read>(&mut self, reader: R, length: u32) -> Result<(), IO::Error> {
         use std::io::BufRead;
 
-        let mut reader = std::io::BufReader::with_capacity(self.dfu.transfer_size as usize, reader);
+        let transfer_size = self.dfu.io.functional_descriptor().transfer_size as usize;
+        let mut reader = std::io::BufReader::with_capacity(transfer_size, reader);
         let buffer = reader.fill_buf()?;
         if buffer.is_empty() {
             return Ok(());
         }
-
-        let cmd = self.dfu.download(length)?;
-        let (cmd, _) = cmd.reset();
-        let (cmd, _) = cmd.clear()?;
-        let (cmd, n) = cmd.get_status(&mut self.buffer)?;
-        let mut download_loop = cmd.chain(&self.buffer[..n])??;
 
         macro_rules! wait_status {
             ($cmd:expr) => {{
@@ -62,26 +59,21 @@ where
                             let (cmd, n) = cmd.get_status(&mut self.buffer)?;
                             cmd.chain(&self.buffer[..n])?
                         }
-                        get_status::Step::WaitManifest(mut cmd) => {
-                            self.dfu.io.usb_reset()?;
+                        get_status::Step::ManifestWaitReset(None) => return Ok(()),
+                        get_status::Step::ManifestWaitReset(Some(cmd)) => {
+                            let (_, res) = cmd.reset();
+                            res?;
                             return Ok(());
-                            /*
-                            loop {
-                                // TODO arbitrary sleeping
-                                std::thread::sleep(std::time::Duration::from_millis(100));
-                                cmd = match cmd.get_status_manifest(&mut self.buffer) {
-                                    get_status::WaitManifestStep::StatusReceived(cmd, n) => {
-                                        break cmd.chain(&self.buffer[..n])?;
-                                    }
-                                    get_status::WaitManifestStep::StatusNotReceived(cmd) => cmd,
-                                };
-                            }
-                            */
                         }
                     };
                 }
             }};
         }
+
+        let cmd = self.dfu.download(length)?;
+        let (cmd, _) = cmd.clear()?;
+        let (cmd, n) = cmd.get_status(&mut self.buffer)?;
+        let mut download_loop = cmd.chain(&self.buffer[..n])??;
 
         loop {
             download_loop = match download_loop.next() {

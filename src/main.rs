@@ -17,6 +17,7 @@ pub enum Error {
     Dfu(#[from] dfu_core::Error),
     #[error(transparent)]
     Io(#[from] std::io::Error),
+    // TODO: it's kinda annoying to have a lifetime in the error
     #[error("Could not parse memory layout: {0}")]
     MemoryLayout(String),
     #[error("libusb: {0}")]
@@ -31,14 +32,18 @@ pub enum Error {
     InvalidInterfaceString,
     #[error("Could not parse address.")]
     InvalidAddress,
+    #[error("Could not parse functional descriptor: {0}")]
+    FunctionalDescriptor(#[from] dfu_core::functional_descriptor::Error),
+    #[error("No DFU capable device found")]
+    NoDfuCapableDeviceFound,
 }
 
 pub struct DfuLibusb<'usb> {
     usb: RefCell<libusb::DeviceHandle<'usb>>,
     memory_layout: dfu_core::memory_layout::MemoryLayout,
     timeout: std::time::Duration,
-    index: u16,
-    lang: libusb::Language,
+    iface: u16,
+    functional_descriptor: dfu_core::functional_descriptor::FunctionalDescriptor,
 }
 
 impl<'usb> dfu_core::DfuIo for DfuLibusb<'usb> {
@@ -55,13 +60,13 @@ impl<'usb> dfu_core::DfuIo for DfuLibusb<'usb> {
         value: u16,
         buffer: &mut [u8],
     ) -> Result<Self::Read, Self::Error> {
-        // TODO: do or do not?
-        let request_type = request_type | 0x80;
+        // TODO: do or do not? there is no try
+        let request_type = request_type | libusb_sys::LIBUSB_ENDPOINT_IN;
         let res = self.usb.borrow().read_control(
             request_type,
             request,
             value,
-            self.index,
+            self.iface,
             buffer,
             self.timeout,
         );
@@ -86,7 +91,7 @@ impl<'usb> dfu_core::DfuIo for DfuLibusb<'usb> {
             request_type,
             request,
             value,
-            self.index,
+            self.iface,
             buffer,
             self.timeout,
         );
@@ -105,6 +110,10 @@ impl<'usb> dfu_core::DfuIo for DfuLibusb<'usb> {
     fn memory_layout(&self) -> &dfu_core::memory_layout::mem {
         &self.memory_layout
     }
+
+    fn functional_descriptor(&self) -> &dfu_core::functional_descriptor::FunctionalDescriptor {
+        &self.functional_descriptor
+    }
 }
 
 impl<'usb> DfuLibusb<'usb> {
@@ -115,20 +124,58 @@ impl<'usb> DfuLibusb<'usb> {
         iface: u8,
         alt: u8,
     ) -> Result<Dfu<'usb>, Error> {
-        let (device, mut handle) = Self::open_device(context, vid, pid)?;
-        handle.set_alternate_setting(iface, alt);
-        let (index, lang, timeout, address, transfer_size, memory_layout) =
-            Self::query_device(device, &handle, iface, alt)?;
-        let buffer = bytes::BytesMut::with_capacity(transfer_size as usize);
-        let io = DfuLibusb {
-            usb: RefCell::new(handle),
-            memory_layout,
-            timeout,
-            index,
-            lang,
-        };
+        use std::convert::TryFrom;
 
-        Ok(dfu_core::sync::DfuSync::new(io, address, transfer_size))
+        let timeout = std::time::Duration::from_secs(3);
+        let (device, handle) = Self::open_device(context, vid, pid)?;
+        // TODO
+        //handle.set_alternate_setting(iface, alt)?;
+        // TODO claim?
+        let device_descriptor = device.device_descriptor()?;
+        let languages = handle.read_languages(timeout)?;
+        let lang = languages.iter().next().ok_or(Error::MissingLanguage)?;
+
+        for index in 0..device_descriptor.num_configurations() {
+            let config_descriptor = device.config_descriptor(index)?;
+
+            let interface = config_descriptor
+                .interfaces()
+                .find(|x| x.number() == iface)
+                .ok_or(Error::InvalidInterface)?;
+            let iface_desc = interface
+                .descriptors()
+                .find(|x| x.setting_number() == alt)
+                .ok_or(Error::InvalidAlt)?;
+            let interface_string = handle.read_interface_string(*lang, &iface_desc, timeout)?;
+
+            let (rest, memory_layout) = interface_string
+                .rsplit_once('/')
+                .ok_or(Error::InvalidInterfaceString)?;
+            let memory_layout = dfu_core::memory_layout::MemoryLayout::try_from(memory_layout)
+                .map_err(|err| Error::MemoryLayout(err.to_string()))?;
+            let (rest, address) = rest.rsplit_once('/').ok_or(Error::InvalidInterfaceString)?;
+            let address = address
+                .strip_prefix("0x")
+                .and_then(|s| u32::from_str_radix(s, 16).ok())
+                .ok_or(Error::InvalidAddress)?;
+
+            if let Some(functional_descriptor) =
+                Self::find_functional_descriptor(&handle, &config_descriptor, timeout)
+                    .transpose()?
+            {
+                let io = DfuLibusb {
+                    usb: RefCell::new(handle),
+                    memory_layout,
+                    timeout,
+                    iface: iface as u16,
+                    functional_descriptor,
+                };
+
+                return Ok(dfu_core::sync::DfuSync::new(io, address));
+            }
+        }
+
+        Err(Error::NoDfuCapableDeviceFound)
     }
 
     fn open_device(
@@ -151,71 +198,41 @@ impl<'usb> DfuLibusb<'usb> {
         Err(Error::CouldNotOpenDevice)
     }
 
-    fn query_device(
-        device: libusb::Device<'usb>,
+    fn find_functional_descriptor(
         handle: &libusb::DeviceHandle<'usb>,
-        iface: u8,
-        alt: u8,
-    ) -> Result<
-        (
-            u16,
-            libusb::Language,
-            std::time::Duration,
-            u32,
-            u32,
-            dfu_core::memory_layout::MemoryLayout,
-        ),
-        Error,
-    > {
-        use std::convert::TryFrom;
+        config: &libusb::ConfigDescriptor,
+        timeout: std::time::Duration,
+    ) -> Option<Result<dfu_core::functional_descriptor::FunctionalDescriptor, Error>> {
+        macro_rules! find_func_desc {
+            ($maybe_data:expr) => {{
+                if let Some(func_desc) = $maybe_data
+                    .and_then(dfu_core::functional_descriptor::FunctionalDescriptor::from_bytes)
+                {
+                    return Some(func_desc.map_err(Into::into));
+                }
+            }};
+        }
 
-        let index = 0;
-        let timeout = std::time::Duration::from_secs(3);
+        find_func_desc!(config.extra());
 
-        let languages = handle.read_languages(timeout)?;
-        let lang = languages.get(0).ok_or(Error::MissingLanguage)?;
-        let config_descriptor = device.config_descriptor(0)?;
+        for if_desc in config.interfaces().map(|x| x.descriptors()).flatten() {
+            find_func_desc!(if_desc.extra());
+        }
 
-        let interface = config_descriptor
-            .interfaces()
-            .find(|x| x.number() == iface)
-            .ok_or(Error::InvalidInterface)?;
-        let iface_desc = interface
-            .descriptors()
-            .find(|x| x.setting_number() == alt)
-            .ok_or(Error::InvalidAlt)?;
-        let interface_string = handle.read_interface_string(*lang, &iface_desc, timeout)?;
-
-        let (rest, memory_layout) = interface_string
-            .rsplit_once('/')
-            .ok_or(Error::InvalidInterfaceString)?;
-        let memory_layout = dfu_core::memory_layout::MemoryLayout::try_from(memory_layout)
-            .map_err(|err| Error::MemoryLayout(err.to_string()))?;
-        let (rest, address) = rest.rsplit_once('/').ok_or(Error::InvalidInterfaceString)?;
-        let address = address
-            .strip_prefix("0x")
-            .and_then(|s| u32::from_str_radix(s, 16).ok())
-            .ok_or(Error::InvalidAddress)?;
-
-        //todo!("{}", handle.read_string_descriptor(*lang, 0, timeout)?);
-
-        /*
         let mut buffer = [0x00; 9];
-        assert_eq!(((0x21 << 8) | 0), 0x2100);
-        #[allow(arithmetic_overflow)]
-        let dfu_func = handle.read_control(
-            0x80,
+        match handle.read_control(
+            libusb_sys::LIBUSB_ENDPOINT_IN,
             libusb_sys::LIBUSB_REQUEST_GET_DESCRIPTOR,
-            (0x21 << 8) | 0,
+            0x2100,
             0,
             &mut buffer,
             timeout,
-        )?;
-        todo!("{:?}", dfu_func);
-        */
+        ) {
+            Ok(n) => find_func_desc!(Some(&buffer[..n])),
+            Err(err) => return Some(Err(err.into())),
+        }
 
-        // TODO
-        Ok((index, *lang, timeout, address, 2048, memory_layout))
+        None
     }
 }
 
@@ -231,9 +248,7 @@ fn main() {
 
     let context = libusb::Context::new().unwrap();
     let mut file = std::fs::File::open(file_path).unwrap();
-    //let file = std::fs::File::open("/home/cecile/repos/dfuflash/testfile").unwrap();
 
-    use std::cell::RefCell;
     use std::rc::Rc;
     let file_size = u32::try_from(file.seek(io::SeekFrom::End(0)).unwrap()).unwrap();
     file.seek(io::SeekFrom::Start(0)).unwrap();

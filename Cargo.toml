@@ -9,5 +9,5 @@ edition = "2018"
 [dependencies]
 bytes = "1"
 thiserror = "1"
-libusb = "0.3"
+libusb = { version = "0.3", git = "https://github.com/cecton/libusb-rs.git", branch = "add-extra-methods" }
 libusb-sys = "0.2"
