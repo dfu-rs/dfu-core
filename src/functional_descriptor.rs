@@ -1,8 +1,16 @@
+#[cfg(any(feature = "std", test))]
 use thiserror::Error;
 
+#[cfg(any(feature = "std", test))]
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("The data is too short (got: {0}, expected: 9)")]
+    DataTooShort(usize),
+}
+
+#[cfg(not(any(feature = "std", test)))]
+#[derive(Debug)]
+pub enum Error {
     DataTooShort(usize),
 }
 

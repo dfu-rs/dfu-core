@@ -1,14 +1,23 @@
+#![no_std]
+
+#[cfg(any(feature = "std", test))]
+#[macro_use]
+extern crate std;
+
 pub mod detach;
 pub mod download;
 pub mod functional_descriptor;
 pub mod get_status;
 pub mod memory_layout;
 pub mod reset;
+#[cfg(any(feature = "std", test))]
 pub mod sync;
 
-use std::fmt;
+use core::fmt;
+#[cfg(any(feature = "std", test))]
 use thiserror::Error;
 
+#[cfg(any(feature = "std", test))]
 #[derive(Debug, Error)]
 pub enum Error {
     #[error("The device is in an invalid state (got: {got:?}, expected: {expected:?}).")]
@@ -32,6 +41,22 @@ pub enum Error {
     #[error("Device status is in error: {0}")]
     StatusError(Status),
     #[error("Device state is in error: {0}")]
+    StateError(State),
+}
+
+#[cfg(not(any(feature = "std", test)))]
+#[derive(Debug)]
+pub enum Error {
+    InvalidState { got: State, expected: State },
+    BufferTooBig { got: usize, expected: usize },
+    MaximumTransferSizeExceeded,
+    EraseLimitReached,
+    MaximumChunksExceeded,
+    NoSpaceLeft,
+    UnrecognizedStatusCode(u8),
+    UnrecognizedStateCode(u8),
+    ResponseTooShort { got: usize, expected: usize },
+    StatusError(Status),
     StateError(State),
 }
 
@@ -223,10 +248,13 @@ pub trait ChainedCommand {
 
 #[cfg(test)]
 mod tests {
+    use std::prelude::v1::*;
+    use crate as dfu_core;
+
     #[test]
     #[should_panic]
     fn ensure_io_can_be_made_into_an_object() {
-        let boxed: Box<
+        let _boxed: Box<
             dyn dfu_core::DfuIo<Read = (), Write = (), Reset = (), Error = dfu_core::Error>,
         > = panic!();
     }

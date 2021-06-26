@@ -218,7 +218,7 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
         ),
         IO::Error,
     > {
-        use std::convert::TryFrom;
+        use core::convert::TryFrom;
 
         let len = u32::try_from(bytes.len())
             .map_err(|_| Error::BufferTooBig {

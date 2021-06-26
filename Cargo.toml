@@ -13,4 +13,10 @@ keywords = ["dfu", "sans-io"]
 
 [dependencies]
 bytes = "1"
+thiserror = { version = "1", optional = true }
+
+[dev-dependencies]
 thiserror = "1"
+
+[features]
+std = ["thiserror"]

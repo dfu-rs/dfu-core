@@ -1,4 +1,5 @@
 use super::*;
+use std::prelude::v1::*;
 
 pub struct DfuSync<IO, E>
 where

@@ -1,7 +1,9 @@
-use std::convert::TryFrom;
-use std::str::FromStr;
+#[cfg(any(feature = "std", test))]
+use std::prelude::v1::*;
+#[cfg(any(feature = "std", test))]
 use thiserror::Error;
 
+#[cfg(any(feature = "std", test))]
 #[derive(Debug, Error)]
 pub enum Error<'a> {
     #[error("invalid page format: {0}")]
@@ -19,27 +21,32 @@ pub type MemoryPage = u32;
 #[allow(non_camel_case_types)]
 pub type mem = [MemoryPage];
 
+#[cfg(any(feature = "std", test))]
 pub struct MemoryLayout(Vec<MemoryPage>);
 
+#[cfg(any(feature = "std", test))]
 impl AsRef<mem> for MemoryLayout {
     fn as_ref(&self) -> &mem {
         self.0.as_slice()
     }
 }
 
+#[cfg(any(feature = "std", test))]
 impl MemoryLayout {
     pub fn new() -> Self {
         Self(Vec::new())
     }
 }
 
+#[cfg(any(feature = "std", test))]
 impl From<Vec<MemoryPage>> for MemoryLayout {
     fn from(vec: Vec<MemoryPage>) -> Self {
         Self(vec)
     }
 }
 
-impl std::ops::Deref for MemoryLayout {
+#[cfg(any(feature = "std", test))]
+impl core::ops::Deref for MemoryLayout {
     type Target = Vec<MemoryPage>;
 
     fn deref(&self) -> &Self::Target {
@@ -47,10 +54,13 @@ impl std::ops::Deref for MemoryLayout {
     }
 }
 
-impl<'a> TryFrom<&'a str> for MemoryLayout {
+#[cfg(any(feature = "std", test))]
+impl<'a> core::convert::TryFrom<&'a str> for MemoryLayout {
     type Error = Error<'a>;
 
     fn try_from(src: &'a str) -> Result<Self, Self::Error> {
+        use core::str::FromStr;
+
         let mut pages = Vec::new();
 
         for s in src.split(',') {
@@ -80,6 +90,7 @@ impl<'a> TryFrom<&'a str> for MemoryLayout {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use core::convert::TryFrom;
 
     #[test]
     fn parsing() {
