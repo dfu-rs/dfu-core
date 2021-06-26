@@ -3,11 +3,14 @@ name = "dfu-core"
 version = "0.1.0"
 authors = ["Cecile Tonglet <cecile.tonglet@cecton.com>"]
 edition = "2018"
-
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT OR Apache-2.0"
+description = "Sans IO core library (traits and tools) for DFU"
+repository = "https://github.com/dfu-rs/dfu-core"
+homepage = "https://github.com/dfu-rs/dfu-core"
+documentation = "https://docs.rs/dfu-core"
+readme = "README.md"
+keywords = ["dfu", "sans-io"]
 
 [dependencies]
 bytes = "1"
 thiserror = "1"
-libusb = { version = "0.3", git = "https://github.com/cecton/libusb-rs.git", branch = "add-extra-methods" }
-libusb-sys = "0.2"
