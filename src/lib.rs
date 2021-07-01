@@ -252,10 +252,10 @@ mod tests {
     use crate as dfu_core;
 
     #[test]
-    #[should_panic]
+    #[ignore]
     fn ensure_io_can_be_made_into_an_object() {
         let _boxed: Box<
             dyn dfu_core::DfuIo<Read = (), Write = (), Reset = (), Error = dfu_core::Error>,
-        > = panic!();
+        > = unreachable!();
     }
 }
