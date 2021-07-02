@@ -248,14 +248,9 @@ pub trait ChainedCommand {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
     use std::prelude::v1::*;
-    use crate as dfu_core;
 
-    #[test]
-    #[ignore]
-    fn ensure_io_can_be_made_into_an_object() {
-        let _boxed: Box<
-            dyn dfu_core::DfuIo<Read = (), Write = (), Reset = (), Error = dfu_core::Error>,
-        > = unreachable!();
-    }
+    // ensure DfuIo can be made into an object
+    const _: [&dyn DfuIo<Read = (), Write = (), Reset = (), Error = Error>; 0] = [];
 }
