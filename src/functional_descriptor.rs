@@ -1,16 +1,11 @@
+use displaydoc::Display;
 #[cfg(any(feature = "std", test))]
 use thiserror::Error;
 
-#[cfg(any(feature = "std", test))]
-#[derive(Debug, Error)]
+#[derive(Debug, Display)]
+#[cfg_attr(feature = "std", derive(Error))]
 pub enum Error {
-    #[error("The data is too short (got: {0}, expected: 9)")]
-    DataTooShort(usize),
-}
-
-#[cfg(not(any(feature = "std", test)))]
-#[derive(Debug)]
-pub enum Error {
+    /// The data is too short (got: {0}, expected: 9)
     DataTooShort(usize),
 }
 

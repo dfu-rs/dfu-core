@@ -14,49 +14,34 @@ pub mod reset;
 pub mod sync;
 
 use core::fmt;
+use displaydoc::Display;
 #[cfg(any(feature = "std", test))]
 use thiserror::Error;
 
-#[cfg(any(feature = "std", test))]
-#[derive(Debug, Error)]
+#[derive(Debug, Display)]
+#[cfg_attr(feature = "std", derive(Error))]
 pub enum Error {
-    #[error("The device is in an invalid state (got: {got:?}, expected: {expected:?}).")]
+    /// The device is in an invalid state (got: {got:?}, expected: {expected:?}).
     InvalidState { got: State, expected: State },
-    #[error("Buffer size exceeds the maximum allowed.")]
+    /// Buffer size exceeds the maximum allowed.
     BufferTooBig { got: usize, expected: usize },
-    #[error("Maximum transfer size exceeded.")]
+    /// Maximum transfer size exceeded.
     MaximumTransferSizeExceeded,
-    #[error("Erasing limit reached.")]
+    /// Erasing limit reached.
     EraseLimitReached,
-    #[error("Maximum number of chunks exceeded.")]
+    /// Maximum number of chunks exceeded.
     MaximumChunksExceeded,
-    #[error("Not enough space on device.")]
+    /// Not enough space on device.
     NoSpaceLeft,
-    #[error("Unrecognized status code: {0}")]
+    /// Unrecognized status code: {0}
     UnrecognizedStatusCode(u8),
-    #[error("Unrecognized state code: {0}")]
+    /// Unrecognized state code: {0}
     UnrecognizedStateCode(u8),
-    #[error("Device response is too short (got: {got:?}, expected: {expected:?}).")]
+    /// Device response is too short (got: {got:?}, expected: {expected:?}).
     ResponseTooShort { got: usize, expected: usize },
-    #[error("Device status is in error: {0}")]
+    /// Device status is in error: {0}
     StatusError(Status),
-    #[error("Device state is in error: {0}")]
-    StateError(State),
-}
-
-#[cfg(not(any(feature = "std", test)))]
-#[derive(Debug)]
-pub enum Error {
-    InvalidState { got: State, expected: State },
-    BufferTooBig { got: usize, expected: usize },
-    MaximumTransferSizeExceeded,
-    EraseLimitReached,
-    MaximumChunksExceeded,
-    NoSpaceLeft,
-    UnrecognizedStatusCode(u8),
-    UnrecognizedStateCode(u8),
-    ResponseTooShort { got: usize, expected: usize },
-    StatusError(Status),
+    /// Device state is in error: {0}
     StateError(State),
 }
 

@@ -13,6 +13,7 @@ keywords = ["dfu", "sans-io"]
 
 [dependencies]
 bytes = "1"
+displaydoc = "0.2"
 thiserror = { version = "1", optional = true }
 
 [dev-dependencies]

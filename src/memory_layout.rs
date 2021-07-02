@@ -1,18 +1,19 @@
+use displaydoc::Display;
 #[cfg(any(feature = "std", test))]
 use std::prelude::v1::*;
 #[cfg(any(feature = "std", test))]
 use thiserror::Error;
 
 #[cfg(any(feature = "std", test))]
-#[derive(Debug, Error)]
+#[derive(Debug, Display, Error)]
 pub enum Error<'a> {
-    #[error("invalid page format: {0}")]
+    /// invalid page format: {0}
     InvalidPageFormat(&'a str),
-    #[error("could not parse page count: {0}")]
+    /// could not parse page count: {0}
     ParseErrorPageCount(&'a str),
-    #[error("could not parse page size: {0}")]
+    /// could not parse page size: {0}
     ParseErrorPageSize(&'a str),
-    #[error("invalid prefix: {0}")]
+    /// invalid prefix: {0}
     InvalidPrefix(&'a str),
 }
 
