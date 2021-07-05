@@ -1,3 +1,4 @@
+#[cfg(any(feature = "std", test))]
 use displaydoc::Display;
 #[cfg(any(feature = "std", test))]
 use std::prelude::v1::*;
