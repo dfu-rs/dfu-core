@@ -1,6 +1,7 @@
 use super::*;
 use std::prelude::v1::*;
 
+/// A basic sync implementation that uses a `DfuIo` provided in argument during runtime.
 pub struct DfuSync<IO, E>
 where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
@@ -16,6 +17,9 @@ where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
+    // TODO move the address?
+    /// Create a new instance to a basic synchronous DFU implementation that uses the IO object
+    /// provided in argument.
     pub fn new(io: IO, address: u32) -> Self {
         let transfer_size = io.functional_descriptor().transfer_size as usize;
 
@@ -26,6 +30,7 @@ where
         }
     }
 
+    /// Report progress synchronously to a closure.
     pub fn with_progress(self, progress: impl Fn(usize) + 'static) -> Self {
         Self {
             progress: Some(Box::new(progress)),
@@ -39,6 +44,7 @@ where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
+    /// Synchronously write a firmware to the device.
     pub fn download<R: std::io::Read>(&mut self, reader: R, length: u32) -> Result<(), IO::Error> {
         use std::io::BufRead;
 

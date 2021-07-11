@@ -18,14 +18,14 @@ Traits & Structs
 
  -  `trait DfuIo`: a trait that can be made into an object that provides the IO
     to this library logic.
- -  `struct DfuSansIo`: a struct thats allows the developer to do the DFU logic
+ -  `struct DfuSansIo`: a struct that allows the developer to do the DFU logic
     using a state machine (can be async or sync).
  -  `struct DfuSync`: a basic sync implementation that uses a `DfuIo` provided
-    by argument during runtime.
+    in argument during runtime.
  -  `type MemoryPage` and `type mem`: primitives representing the memory layout
     of the device (like `char` and `str`).
  -  `struct MemoryLayout`: (requires features `std`) an allocated
-    representation of the memory layout (like `String`) that can be parse a
+    representation of the memory layout (like `String`) that can parse a
     memory layout from a string.
  -  `FunctionalDescriptor`: can read the extra bytes of a USB functional
     descriptor to provide information for the DFU logic.
