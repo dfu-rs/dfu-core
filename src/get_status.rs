@@ -10,6 +10,7 @@ pub(crate) type Index = u8;
 // TODO make a struct?
 pub(crate) type GetStatusMessage = (Status, PollTimeout, State, Index);
 
+/// Command that queries the status of the device.
 #[must_use]
 pub struct GetStatus<'dfu, IO: DfuIo, T: ChainedCommand<Arg = GetStatusMessage>> {
     pub(crate) dfu: &'dfu DfuSansIo<IO>,
@@ -17,6 +18,7 @@ pub struct GetStatus<'dfu, IO: DfuIo, T: ChainedCommand<Arg = GetStatusMessage>>
 }
 
 impl<'dfu, IO: DfuIo, T: ChainedCommand<Arg = GetStatusMessage>> GetStatus<'dfu, IO, T> {
+    /// Query the status of the device.
     pub fn get_status(self, buffer: &mut [u8]) -> Result<(GetStatusRecv<T>, IO::Read), IO::Error> {
         debug_assert!(buffer.len() >= 6);
         let next = GetStatusRecv {
@@ -30,12 +32,14 @@ impl<'dfu, IO: DfuIo, T: ChainedCommand<Arg = GetStatusMessage>> GetStatus<'dfu,
     }
 }
 
+/// Command that receives the status of the device and chain it into another command.
 #[must_use]
 pub struct GetStatusRecv<T: ChainedCommand<Arg = GetStatusMessage>> {
     chained_command: T,
 }
 
 impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatusRecv<T> {
+    /// Receives the status of the device and chains the current command into another command.
     pub fn chain(self, mut bytes: &[u8]) -> Result<T::Into, Error> {
         if bytes.len() < 6 {
             return Err(Error::ResponseTooShort {
@@ -89,6 +93,7 @@ impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatusRecv<T> {
     }
 }
 
+/// Command that clears the status of the device.
 #[must_use]
 pub struct ClearStatus<'dfu, IO: DfuIo, T> {
     pub(crate) dfu: &'dfu DfuSansIo<IO>,
@@ -96,6 +101,7 @@ pub struct ClearStatus<'dfu, IO: DfuIo, T> {
 }
 
 impl<'dfu, IO: DfuIo, T> ClearStatus<'dfu, IO, T> {
+    /// Clear the status of the device.
     pub fn clear(self) -> Result<(T, IO::Write), IO::Error> {
         let res = self
             .dfu
@@ -108,6 +114,7 @@ impl<'dfu, IO: DfuIo, T> ClearStatus<'dfu, IO, T> {
 }
 
 // TODO constructor
+/// Command that waits for the device to enter a state.
 #[must_use]
 pub struct WaitState<'dfu, IO: DfuIo, T> {
     pub(crate) dfu: &'dfu DfuSansIo<IO>,
@@ -118,13 +125,18 @@ pub struct WaitState<'dfu, IO: DfuIo, T> {
     pub(crate) in_manifest: bool,
 }
 
+/// Step to take after waiting for a state.
 pub enum Step<'dfu, IO: DfuIo, T> {
+    /// The state has been reached, the loop can be break.
     Break(T),
+    /// The state has not been reached and the status of the device must be queried.
     Wait(GetStatus<'dfu, IO, WaitState<'dfu, IO, T>>, PollTimeout),
+    /// The device is in manifest state and might require a USB reset.
     ManifestWaitReset(Option<reset::UsbReset<'dfu, IO, ()>>),
 }
 
 impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
+    /// Returns the next command after waiting for a state.
     pub fn next(self) -> Step<'dfu, IO, T> {
         let func_desc = self.dfu.io.functional_descriptor();
 
