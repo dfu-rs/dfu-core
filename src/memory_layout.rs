@@ -5,7 +5,7 @@ use std::prelude::v1::*;
 #[cfg(any(feature = "std", test))]
 use thiserror::Error;
 
-/// Error that can occurs while parsing a memory layout.
+/// Error while parsing a memory layout.
 #[cfg(any(feature = "std", test))]
 #[derive(Debug, Display, Error)]
 pub enum Error<'a> {
@@ -19,15 +19,14 @@ pub enum Error<'a> {
     InvalidPrefix(&'a str),
 }
 
-/// Primitive for a memory page.
+/// A memory page size.
 pub type MemoryPage = u32;
 
-/// Primitive for a slice of memory pages.
+/// A slice of memory pages.
 #[allow(non_camel_case_types)]
 pub type mem = [MemoryPage];
 
-/// An allocated representation of the memory layout (like `String`) that can parse a memory
-/// layout from a string. (Requires features `std`.)
+/// Memory layout.
 #[cfg(any(feature = "std", test))]
 pub struct MemoryLayout(Vec<MemoryPage>);
 
@@ -40,7 +39,7 @@ impl AsRef<mem> for MemoryLayout {
 
 #[cfg(any(feature = "std", test))]
 impl MemoryLayout {
-    /// Creates a new empty instance of a memory layout.
+    /// Create a new empty instance of [`MemoryLayout`].
     pub fn new() -> Self {
         Self(Vec::new())
     }
@@ -66,6 +65,13 @@ impl core::ops::Deref for MemoryLayout {
 
     fn deref(&self) -> &Self::Target {
         &self.0
+    }
+}
+
+#[cfg(any(feature = "std", test))]
+impl core::ops::DerefMut for MemoryLayout {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
     }
 }
 

@@ -2,42 +2,54 @@ use displaydoc::Display;
 #[cfg(any(feature = "std", test))]
 use thiserror::Error;
 
-/// An error that might occur while parsing the extra bytes of the USB functional descriptor.
+/// Error when reading the functional descriptor.
 #[derive(Debug, Display)]
 #[cfg_attr(feature = "std", derive(Error))]
 pub enum Error {
-    /// The data is too short (got: {0}, expected: 9)
+    /// The data is too short (got: {0}, expected: 9).
     DataTooShort(usize),
 }
 
-/// Represents the functional descriptor of a device.
+/// Functional descriptor.
 #[derive(Debug, Copy, Clone)]
 pub struct FunctionalDescriptor {
-    /// Bit 0: download capable (bitCanDnload)
+    /// bitCanDnload.
+    ///
+    /// Bit 0: download capable.
     pub can_download: bool,
-    /// Bit 1: upload capable (bitCanUpload)
+    /// bitCanUpload.
+    ///
+    /// Bit 1: upload capable.
     pub can_upload: bool,
+    /// bitManifestationTolerant.
+    ///
     /// Bit 2: device is able to communicate via USB after Manifestation phase.
-    /// (bitManifestationTolerant)
     pub manifestation_tolerant: bool,
+    /// bitWillDetach.
+    ///
     /// Bit 3: device will perform a bus detach-attach sequence when it receives a DFU_DETACH
-    /// request. The host must not issue a USB Reset. (bitWillDetach)
+    /// request. The host must not issue a USB Reset.
     pub will_detach: bool,
+    /// wDetachTimeOut.
+    ///
     /// Time, in milliseconds, that the device will wait after receipt of the DFU_DETACH request.
     /// If this time elapses without a USB reset, then the device will terminate the
     /// Reconfiguration phase and revert back to normal operation. This represents the maximum
     /// time that the device can wait (depending on its timers, etc.). The host may specify a
     /// shorter timeout in the DFU_DETACH request.
-    // TODO use Duration
     pub detach_timeout: u16,
+    /// wTransferSize.
+    ///
     /// Maximum number of bytes that the device can accept per control-write transaction.
     pub transfer_size: u16,
+    /// bcdDFUVersion.
+    ///
     /// Numeric expression identifying the version of the DFU Specification release.
     pub dfu_version: (u8, u8),
 }
 
 impl FunctionalDescriptor {
-    /// Read the functional descriptor from the extra bytes of the USB functional descriptor.
+    /// Read functional descriptor from a slice of bytes.
     pub fn from_bytes(mut bytes: &[u8]) -> Option<Result<Self, Error>> {
         use bytes::Buf;
 

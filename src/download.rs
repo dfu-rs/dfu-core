@@ -3,7 +3,7 @@ use super::*;
 const REQUEST_TYPE: u8 = 0b00100001;
 const DFU_DNLOAD: u8 = 1;
 
-/// Command that starts the writing of the firmware into the device.
+/// Starting point to download a firmware into a device.
 #[must_use]
 pub struct Start<'dfu, IO: DfuIo> {
     pub(crate) dfu: &'dfu DfuSansIo<IO>,
@@ -46,7 +46,7 @@ impl<'dfu, IO: DfuIo> ChainedCommand for Start<'dfu, IO> {
     }
 }
 
-/// Command that provides step to write a firmware to the device in a loop fashion.
+/// Download loop.
 #[must_use]
 pub struct DownloadLoop<'dfu, IO: DfuIo> {
     dfu: &'dfu DfuSansIo<IO>,
@@ -60,7 +60,7 @@ pub struct DownloadLoop<'dfu, IO: DfuIo> {
 }
 
 impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
-    /// Retrieve the next command to write a firmware to the device.
+    /// Get the next step in the download loop.
     pub fn next(self) -> Step<'dfu, IO> {
         if self.eof {
             Step::Break
@@ -95,19 +95,16 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
     }
 }
 
-/// A download step when writing a firmware to the device.
+/// Download step in the loop.
+#[allow(missing_docs)]
 pub enum Step<'dfu, IO: DfuIo> {
-    /// End the loop.
     Break,
-    /// Erase a memory page.
     Erase(ErasePage<'dfu, IO>),
-    /// Set the address before writing to the device.
     SetAddress(SetAddress<'dfu, IO>),
-    /// Write a chunk of data into the device.
     DownloadChunk(DownloadChunk<'dfu, IO>),
 }
 
-/// Command to erase a memory page.
+/// Erase a memory page.
 #[must_use]
 pub struct ErasePage<'dfu, IO: DfuIo> {
     dfu: &'dfu DfuSansIo<IO>,
@@ -160,7 +157,7 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
     }
 }
 
-/// Command to set the address before writing to the device.
+/// Set the address for download.
 #[must_use]
 pub struct SetAddress<'dfu, IO: DfuIo> {
     dfu: &'dfu DfuSansIo<IO>,
@@ -172,7 +169,7 @@ pub struct SetAddress<'dfu, IO: DfuIo> {
 }
 
 impl<'dfu, IO: DfuIo> SetAddress<'dfu, IO> {
-    /// Set the address before writing to the device.
+    /// Set the address for download.
     pub fn set_address(
         self,
     ) -> Result<
@@ -207,7 +204,7 @@ impl<'dfu, IO: DfuIo> SetAddress<'dfu, IO> {
     }
 }
 
-/// Command to write a chunk of data to the device.
+/// Download a chunk of data into the device.
 #[must_use]
 pub struct DownloadChunk<'dfu, IO: DfuIo> {
     dfu: &'dfu DfuSansIo<IO>,
@@ -219,8 +216,8 @@ pub struct DownloadChunk<'dfu, IO: DfuIo> {
 }
 
 impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
-    /// Write a chunk of data to the device.
-    pub fn write(
+    /// Download a chunk of data into the device.
+    pub fn download(
         self,
         bytes: &[u8],
     ) -> Result<
@@ -270,7 +267,7 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
     }
 }
 
-/// Download command to erase a memory page.
+/// Command to erase.
 #[derive(Debug, Clone, Copy)]
 pub struct DownloadCommandErase(u32);
 
@@ -283,7 +280,7 @@ impl From<DownloadCommandErase> for [u8; 5] {
     }
 }
 
-/// Download command to set the address.
+/// Command to set address to download.
 #[derive(Debug, Clone, Copy)]
 pub struct DownloadCommandSetAddress(u32);
 

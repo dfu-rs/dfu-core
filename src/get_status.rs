@@ -5,10 +5,15 @@ const REQUEST_TYPE: u8 = 0b00100001;
 const DFU_GETSTATUS: u8 = 3;
 const DFU_CLRSTATUS: u8 = 4;
 
+/// Get status message.
 pub struct GetStatusMessage {
+    /// Status.
     pub status: Status,
+    /// Poll timeout.
     pub poll_timeout: u64,
+    /// State.
     pub state: State,
+    /// Index.
     pub index: u8,
 }
 
@@ -34,14 +39,15 @@ impl<'dfu, IO: DfuIo, T: ChainedCommand<Arg = GetStatusMessage>> GetStatus<'dfu,
     }
 }
 
-/// Command that receives the status of the device and chain it into another command.
+/// Read status after getting it from the device.
 #[must_use]
 pub struct GetStatusRecv<T: ChainedCommand<Arg = GetStatusMessage>> {
     chained_command: T,
 }
 
+// TODO: this impl does not use ChainedCommand because the argument has an anonymous lifetime.
 impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatusRecv<T> {
-    /// Receives the status of the device and chains the current command into another command.
+    /// Chain this command into another.
     pub fn chain(self, mut bytes: &[u8]) -> Result<T::Into, Error> {
         if bytes.len() < 6 {
             return Err(Error::ResponseTooShort {
@@ -118,8 +124,7 @@ impl<'dfu, IO: DfuIo, T> ClearStatus<'dfu, IO, T> {
     }
 }
 
-// TODO constructor
-/// Command that waits for the device to enter a state.
+/// Wait for the device to enter a specific state.
 #[must_use]
 pub struct WaitState<'dfu, IO: DfuIo, T> {
     dfu: &'dfu DfuSansIo<IO>,
@@ -130,9 +135,9 @@ pub struct WaitState<'dfu, IO: DfuIo, T> {
     in_manifest: bool,
 }
 
-/// Step to take after waiting for a state.
+/// A step when waiting for a state.
+#[allow(missing_docs)]
 pub enum Step<'dfu, IO: DfuIo, T> {
-    /// The state has been reached, the loop can be break.
     Break(T),
     /// The state has not been reached and the status of the device must be queried.
     Wait(GetStatus<'dfu, IO, WaitState<'dfu, IO, T>>, u64),
@@ -141,6 +146,7 @@ pub enum Step<'dfu, IO: DfuIo, T> {
 }
 
 impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
+    /// Create a new instance of [`WaitState`].
     pub fn new(dfu: &'dfu DfuSansIo<IO>, state: State, chained_command: T) -> Self {
         Self {
             dfu,

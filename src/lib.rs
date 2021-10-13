@@ -1,5 +1,4 @@
 //! Sans IO core library (traits and tools) for DFU.
-
 #![no_std]
 #![warn(missing_docs)]
 #![allow(clippy::type_complexity)]
@@ -8,36 +7,33 @@
 #[macro_use]
 extern crate std;
 
-/// Module for handling the DFU_DETACH request.
+/// Commands to detach the device.
 pub mod detach;
-/// Module for the logic of writing a firmware to the device.
+/// Commands to download a firmware into the device.
 pub mod download;
-/// Module for representing and parsing the DFU functional descriptor.
+/// Functional descriptor.
 pub mod functional_descriptor;
-/// Module for handling the status of the device.
+/// Commands to get the status of the device.
 pub mod get_status;
-/// Module for representing and parsing the memory layout of the device.
+/// Memory layout.
 pub mod memory_layout;
-/// Module for resetting the USB device.
+/// Commands to reset the device.
 pub mod reset;
-/// Basic synchronous implementation of DFU. (Requires `std`.)
+/// Generic synchronous implementation.
 #[cfg(any(feature = "std", test))]
 pub mod sync;
 
-use core::fmt;
 use displaydoc::Display;
 #[cfg(any(feature = "std", test))]
 use thiserror::Error;
 
-/// Error that might happen during the execution of the commands.
 #[derive(Debug, Display)]
 #[cfg_attr(feature = "std", derive(Error))]
+#[allow(missing_docs)]
 pub enum Error {
     /// The device is in an invalid state (got: {got:?}, expected: {expected:?}).
-    #[allow(missing_docs)]
     InvalidState { got: State, expected: State },
     /// Buffer size exceeds the maximum allowed.
-    #[allow(missing_docs)]
     BufferTooBig { got: usize, expected: usize },
     /// Maximum transfer size exceeded.
     MaximumTransferSizeExceeded,
@@ -52,7 +48,6 @@ pub enum Error {
     /// Unrecognized state code: {0}
     UnrecognizedStateCode(u8),
     /// Device response is too short (got: {got:?}, expected: {expected:?}).
-    #[allow(missing_docs)]
     ResponseTooShort { got: usize, expected: usize },
     /// Device status is in error: {0}
     StatusError(Status),
@@ -60,18 +55,18 @@ pub enum Error {
     StateError(State),
 }
 
-/// A trait that can be made into an object that provides the IO to this library logic.
+/// Trait to implement lower level communication with a USB device.
 pub trait DfuIo {
-    /// Return type after reading a control request.
+    /// Return type after calling [`read_control`].
     type Read;
-    /// Return type after writing a control request.
+    /// Return type after calling [`write_control`].
     type Write;
-    /// Return type after triggering a USB reset on the device.
+    /// Return type after calling [`usb_reset`].
     type Reset;
-    /// Error type of this implementation.
+    /// Error type.
     type Error: From<Error>;
 
-    /// Read control request.
+    /// Read data using control transfer.
     fn read_control(
         &self,
         request_type: u8,
@@ -80,7 +75,7 @@ pub trait DfuIo {
         buffer: &mut [u8],
     ) -> Result<Self::Read, Self::Error>;
 
-    /// Write control request.
+    /// Write data using control transfer.
     fn write_control(
         &self,
         request_type: u8,
@@ -89,31 +84,29 @@ pub trait DfuIo {
         buffer: &[u8],
     ) -> Result<Self::Write, Self::Error>;
 
-    /// Triggers a USB reset on the device.
+    /// Triggers a USB reset.
     fn usb_reset(&self) -> Result<Self::Reset, Self::Error>;
 
-    /// Retrieve the memory layout of the device.
+    /// Returns the memory layout of the device.
     fn memory_layout(&self) -> &memory_layout::mem;
 
-    /// Retrieve the functional descriptor of the device.
+    /// Returns the functional descriptor of the device.
     fn functional_descriptor(&self) -> &functional_descriptor::FunctionalDescriptor;
 }
 
-/// A struct that allows the developer to do the DFU logic using a state machine (can be async or
-/// sync).
+/// Use this struct to create state machines to make operations on the device.
 pub struct DfuSansIo<IO> {
     io: IO,
     address: u32,
 }
 
 impl<IO: DfuIo> DfuSansIo<IO> {
-    // TODO address should probably be moved to download()
-    /// Create a new instances based on a `DfuIo` object and an address (where to write/read).
+    /// Create an instance of [`DfuSansIo`].
     pub fn new(io: IO, address: u32) -> Self {
         Self { io, address }
     }
 
-    /// Creates an state machine that can be executed to write a firmware to the device.
+    /// Create a state machine to download the firmware into the device.
     pub fn download(
         &self,
         length: u32,
@@ -136,8 +129,10 @@ impl<IO: DfuIo> DfuSansIo<IO> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-/// DFU statuses.
+/// DFU Status.
+///
+/// Note: not the same as state!
+#[derive(Debug, Clone, Copy, PartialEq, Display)]
 pub enum Status {
     /// No error condition is present.
     Ok,
@@ -148,63 +143,31 @@ pub enum Status {
     /// Device is unable to write memory.
     ErrWrite,
     /// Memory erase function failed.
-    ErrCheckErased,
-    /// Memory erase check failed.
-    ErrProg,
-    /// Program memory function failed.
-    ErrVerify,
-    /// Programmed memory failed verification.
-    ErrAddress,
-    /// Cannot program memory due to received address that is out of range.
-    ErrNotdone,
-    /// Received DFU_DNLOAD with wLength = 0, but device does not think it has all of the data yet.
-    ErrFirmware,
-    /// Device's firmware is corrupt. It cannot return to run-time (non-DFU) operations.
-    ErrVendor,
-    /// iString indicates a vendor-specific error.
-    ErrUsbr,
-    /// Device detected unexpected USB reset signaling.
-    ErrPor,
-    /// Device detected unexpected power on reset.
     ErrErase,
+    /// Memory erase check failed.
+    ErrCheckErased,
+    /// Program memory function failed.
+    ErrProg,
+    /// Programmed memory failed verification.
+    ErrVerify,
+    /// Cannot program memory due to received address that is out of range.
+    ErrAddress,
+    /// Received DFU_DNLOAD with wLength = 0, but device does not think it has all of the data yet.
+    ErrNotdone,
+    /// Device's firmware is corrupt. It cannot return to run-time (non-DFU) operations.
+    ErrFirmware,
+    /// iString indicates a vendor-specific error.
+    ErrVendor,
+    /// Device detected unexpected USB reset signaling.
+    ErrUsbr,
+    /// Device detected unexpected power on reset.
+    ErrPor,
     /// Something went wrong, but the device does not know what it was.
     ErrUnknown,
     /// Device stalled an unexpected request.
     ErrStalledpkt,
-    /// Other status (not recognized).
+    /// Other ({0}).
     Other(u8),
-}
-
-impl fmt::Display for Status {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use Status::*;
-
-        // TODO those messages should probably be re-wrote as they are intended to the user.
-        write!(
-            f,
-            "{}",
-            match self {
-                Ok => "No error condition is present.",
-                ErrTarget => "File is not targeted for use by this device.",
-                ErrFile => "File is for this device but fails some vendor-specific verification test.",
-                ErrWrite => "Device is unable to write memory.",
-                ErrErase => "Memory erase function failed.",
-                ErrCheckErased => "Memory erase check failed.",
-                ErrProg => "Program memory function failed.",
-                ErrVerify => "Programmed memory failed verification.",
-                ErrAddress => "Cannot program memory due to received address that is out of range.",
-                ErrNotdone => "Received DFU_DNLOAD with wLength = 0, but device does not think it has all of the data yet.",
-                ErrFirmware => "Device's firmware is corrupt. It cannot return to run-time (non-DFU) operations.",
-                ErrVendor => "iString indicates a vendor-specific error.",
-                ErrUsbr => "Device detected unexpected USB reset signaling.",
-                ErrPor => "Device detected unexpected power on reset.",
-                ErrUnknown => "Something went wrong, but the device does not know what it was.",
-                ErrStalledpkt => "Device stalled an unexpected request.",
-                // TODO format code
-                Other(_) => "Other status",
-            }
-        )
-    }
 }
 
 impl Status {
@@ -217,8 +180,10 @@ impl Status {
     }
 }
 
-/// DFU states.
-#[derive(Debug, Clone, Copy, PartialEq)]
+/// DFU State.
+///
+/// Note: not the same as status!
+#[derive(Debug, Clone, Copy, PartialEq, Display)]
 pub enum State {
     /// Device is running its normal application.
     AppIdle,
@@ -242,35 +207,8 @@ pub enum State {
     DfuUploadIdle,
     /// An error has occurred. Awaiting the DFU_CLRSTATUS request.
     DfuError,
-    /// Other state (not recognized).
+    /// Other ({0}).
     Other(u8),
-}
-
-impl fmt::Display for State {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        use State::*;
-
-        // TODO those messages should probably be re-wrote as they are intended to the user.
-        write!(
-            f,
-            "{}",
-            match self {
-                AppIdle => "Device is running its normal application.",
-                AppDetach => "Device is running its normal application, has received the DFU_DETACH request, and is waiting for a USB reset.",
-                DfuIdle => "Device is operating in the DFU mode and is waiting for requests.",
-                DfuUnloadSync => "Device has received a block and is waiting for the host to solicit the status via DFU_GETSTATUS.",
-                DfuDnbusy => "Device is programming a control-write block into its nonvolatile memories.",
-                DfuDnloadIdle => "Device is processing a download operation.  Expecting DFU_DNLOAD requests.",
-                DfuManifestSync => "Device has received the final block of firmware from the host and is waiting for receipt of DFU_GETSTATUS to begin the Manifestation phase; or device has completed the Manifestation phase and is waiting for receipt of DFU_GETSTATUS.  (Devices that can enter this state after the Manifestation phase set bmAttributes bit bitManifestationTolerant to 1.)",
-                DfuManifest => "Device is in the Manifestation phase.  (Not all devices will be able to respond to DFU_GETSTATUS when in this state.)",
-                DfuManifestWaitReset => "Device has programmed its memories and is waiting for a USB reset or a power on reset.  (Devices that must enter this state clear bitManifestationTolerant to 0.)",
-                DfuUploadIdle => "The device is processing an upload operation.  Expecting DFU_UPLOAD requests.",
-                DfuError => "An error has occurred. Awaiting the DFU_CLRSTATUS request.",
-                // TODO format code
-                Other(_) => "Other state",
-            },
-        )
-    }
 }
 
 impl State {
@@ -283,15 +221,14 @@ impl State {
     }
 }
 
-/// Trait that allows chaining a command to another command by taking ownership of the original
-/// command and transforming it to another.
+/// A trait for commands that be chained into another.
 pub trait ChainedCommand {
-    /// Argument to passe to the transformation function.
+    /// Type of the argument to pass with the command for chaining.
     type Arg;
-    /// Command to transform into.
+    /// Type of the command after being chained.
     type Into;
 
-    /// This function is run to transform a command (`self`) to another (`Self::Into`).
+    /// Chain this command into another.
     fn chain(self, arg: Self::Arg) -> Self::Into;
 }
 

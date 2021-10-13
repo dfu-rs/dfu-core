@@ -1,7 +1,7 @@
 use super::*;
 use std::prelude::v1::*;
 
-/// A basic sync implementation that uses a `DfuIo` provided in argument during runtime.
+/// Generic synchronous implementation of DFU.
 pub struct DfuSync<IO, E>
 where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
@@ -17,9 +17,7 @@ where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
-    // TODO move the address?
-    /// Create a new instance to a basic synchronous DFU implementation that uses the IO object
-    /// provided in argument.
+    /// Create a new instance of a generic synchronous implementation of DFU.
     pub fn new(io: IO, address: u32) -> Self {
         let transfer_size = io.functional_descriptor().transfer_size as usize;
 
@@ -30,7 +28,7 @@ where
         }
     }
 
-    /// Report progress synchronously to a closure.
+    /// Use this closure to show progress.
     pub fn with_progress(self, progress: impl Fn(usize) + 'static) -> Self {
         Self {
             progress: Some(Box::new(progress)),
@@ -44,7 +42,7 @@ where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
-    /// Synchronously write a firmware to the device.
+    /// Download a firmware into the device.
     pub fn download<R: std::io::Read>(&mut self, reader: R, length: u32) -> Result<(), IO::Error> {
         use std::io::BufRead;
 
@@ -95,7 +93,7 @@ where
                 }
                 download::Step::DownloadChunk(cmd) => {
                     let chunk = reader.fill_buf()?;
-                    let (cmd, n) = cmd.write(chunk)?;
+                    let (cmd, n) = cmd.download(chunk)?;
                     reader.consume(n);
                     if let Some(progress) = self.progress.as_ref() {
                         progress(n);
