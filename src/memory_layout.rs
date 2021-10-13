@@ -47,6 +47,13 @@ impl MemoryLayout {
 }
 
 #[cfg(any(feature = "std", test))]
+impl Default for MemoryLayout {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(any(feature = "std", test))]
 impl From<Vec<MemoryPage>> for MemoryLayout {
     fn from(vec: Vec<MemoryPage>) -> Self {
         Self(vec)

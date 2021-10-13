@@ -2,6 +2,7 @@
 
 #![no_std]
 #![warn(missing_docs)]
+#![allow(clippy::type_complexity)]
 
 #[cfg(any(feature = "std", test))]
 #[macro_use]
@@ -113,15 +114,11 @@ impl<IO: DfuIo> DfuSansIo<IO> {
     }
 
     /// Creates an state machine that can be executed to write a firmware to the device.
-    pub fn download<'dfu>(
-        &'dfu self,
+    pub fn download(
+        &self,
         length: u32,
     ) -> Result<
-        get_status::ClearStatus<
-            'dfu,
-            IO,
-            get_status::GetStatus<'dfu, IO, download::Start<'dfu, IO>>,
-        >,
+        get_status::ClearStatus<'_, IO, get_status::GetStatus<'_, IO, download::Start<'_, IO>>>,
         Error,
     > {
         Ok(get_status::ClearStatus {

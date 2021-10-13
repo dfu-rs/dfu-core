@@ -64,35 +64,33 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
     pub fn next(self) -> Step<'dfu, IO> {
         if self.eof {
             Step::Break
+        } else if self.erased_pos < self.end_pos {
+            Step::Erase(ErasePage {
+                dfu: self.dfu,
+                memory_layout: self.memory_layout,
+                end_pos: self.end_pos,
+                copied_pos: self.copied_pos,
+                erased_pos: self.erased_pos,
+                block_num: self.block_num,
+            })
+        } else if !self.address_set {
+            Step::SetAddress(SetAddress {
+                dfu: self.dfu,
+                memory_layout: self.memory_layout,
+                end_pos: self.end_pos,
+                copied_pos: self.copied_pos,
+                erased_pos: self.erased_pos,
+                block_num: self.block_num,
+            })
         } else {
-            if self.erased_pos < self.end_pos {
-                Step::Erase(ErasePage {
-                    dfu: self.dfu,
-                    memory_layout: self.memory_layout,
-                    end_pos: self.end_pos,
-                    copied_pos: self.copied_pos,
-                    erased_pos: self.erased_pos,
-                    block_num: self.block_num,
-                })
-            } else if !self.address_set {
-                Step::SetAddress(SetAddress {
-                    dfu: self.dfu,
-                    memory_layout: self.memory_layout,
-                    end_pos: self.end_pos,
-                    copied_pos: self.copied_pos,
-                    erased_pos: self.erased_pos,
-                    block_num: self.block_num,
-                })
-            } else {
-                Step::DownloadChunk(DownloadChunk {
-                    dfu: self.dfu,
-                    memory_layout: self.memory_layout,
-                    end_pos: self.end_pos,
-                    copied_pos: self.copied_pos,
-                    erased_pos: self.erased_pos,
-                    block_num: self.block_num,
-                })
-            }
+            Step::DownloadChunk(DownloadChunk {
+                dfu: self.dfu,
+                memory_layout: self.memory_layout,
+                end_pos: self.end_pos,
+                copied_pos: self.copied_pos,
+                erased_pos: self.erased_pos,
+                block_num: self.block_num,
+            })
         }
     }
 }
@@ -131,13 +129,11 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
         ),
         IO::Error,
     > {
-        let (page_size, rest_memory_layout) = self
-            .memory_layout
-            .split_first()
-            .ok_or_else(|| Error::NoSpaceLeft)?;
+        let (page_size, rest_memory_layout) =
+            self.memory_layout.split_first().ok_or(Error::NoSpaceLeft)?;
 
         let next = get_status::WaitState::new(
-            &self.dfu,
+            self.dfu,
             State::DfuDnloadIdle,
             DownloadLoop {
                 dfu: self.dfu,
@@ -147,7 +143,7 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
                 erased_pos: self
                     .erased_pos
                     .checked_add(*page_size)
-                    .ok_or_else(|| Error::EraseLimitReached)?,
+                    .ok_or(Error::EraseLimitReached)?,
                 block_num: self.block_num,
                 address_set: false,
                 eof: false,
@@ -187,7 +183,7 @@ impl<'dfu, IO: DfuIo> SetAddress<'dfu, IO> {
         IO::Error,
     > {
         let next = get_status::WaitState::new(
-            &self.dfu,
+            self.dfu,
             State::DfuDnloadIdle,
             DownloadLoop {
                 dfu: self.dfu,
@@ -244,7 +240,7 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
             .min(self.dfu.io.functional_descriptor().transfer_size as u32);
 
         let next = get_status::WaitState::new(
-            &self.dfu,
+            self.dfu,
             State::DfuDnloadIdle,
             DownloadLoop {
                 dfu: self.dfu,
@@ -253,12 +249,12 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
                 copied_pos: self
                     .copied_pos
                     .checked_add(len)
-                    .ok_or_else(|| Error::MaximumTransferSizeExceeded)?,
+                    .ok_or(Error::MaximumTransferSizeExceeded)?,
                 erased_pos: self.erased_pos,
                 block_num: self
                     .block_num
                     .checked_add(1)
-                    .ok_or_else(|| Error::MaximumChunksExceeded)?,
+                    .ok_or(Error::MaximumChunksExceeded)?,
                 address_set: true,
                 eof: bytes.is_empty(),
             },
