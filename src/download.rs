@@ -16,7 +16,15 @@ impl<'dfu, IO: DfuIo> ChainedCommand for Start<'dfu, IO> {
     type Arg = get_status::GetStatusMessage;
     type Into = Result<DownloadLoop<'dfu, IO>, Error>;
 
-    fn chain(self, (_status, _poll_timeout, state, _index): Self::Arg) -> Self::Into {
+    fn chain(
+        self,
+        get_status::GetStatusMessage {
+            status: _,
+            poll_timeout: _,
+            state,
+            index: _,
+        }: Self::Arg,
+    ) -> Self::Into {
         // TODO startup can be in AppIdle in which case the Detach-Attach process needs to be done
         if state == State::DfuIdle {
             Ok(DownloadLoop {
@@ -128,10 +136,10 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
             .split_first()
             .ok_or_else(|| Error::NoSpaceLeft)?;
 
-        let next = get_status::WaitState {
-            dfu: &self.dfu,
-            state: State::DfuDnloadIdle,
-            chained_command: DownloadLoop {
+        let next = get_status::WaitState::new(
+            &self.dfu,
+            State::DfuDnloadIdle,
+            DownloadLoop {
                 dfu: self.dfu,
                 memory_layout: rest_memory_layout,
                 end_pos: self.end_pos,
@@ -144,10 +152,7 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
                 address_set: false,
                 eof: false,
             },
-            end: false,
-            poll_timeout: 0,
-            in_manifest: false,
-        };
+        );
         let res = self.dfu.io.write_control(
             REQUEST_TYPE,
             DFU_DNLOAD,
@@ -181,10 +186,10 @@ impl<'dfu, IO: DfuIo> SetAddress<'dfu, IO> {
         ),
         IO::Error,
     > {
-        let next = get_status::WaitState {
-            dfu: &self.dfu,
-            state: State::DfuDnloadIdle,
-            chained_command: DownloadLoop {
+        let next = get_status::WaitState::new(
+            &self.dfu,
+            State::DfuDnloadIdle,
+            DownloadLoop {
                 dfu: self.dfu,
                 memory_layout: self.memory_layout,
                 end_pos: self.end_pos,
@@ -194,10 +199,7 @@ impl<'dfu, IO: DfuIo> SetAddress<'dfu, IO> {
                 address_set: true,
                 eof: false,
             },
-            end: false,
-            poll_timeout: 0,
-            in_manifest: false,
-        };
+        );
         let res = self.dfu.io.write_control(
             REQUEST_TYPE,
             DFU_DNLOAD,
@@ -241,10 +243,10 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
             })?
             .min(self.dfu.io.functional_descriptor().transfer_size as u32);
 
-        let next = get_status::WaitState {
-            dfu: &self.dfu,
-            state: State::DfuDnloadIdle,
-            chained_command: DownloadLoop {
+        let next = get_status::WaitState::new(
+            &self.dfu,
+            State::DfuDnloadIdle,
+            DownloadLoop {
                 dfu: self.dfu,
                 memory_layout: self.memory_layout,
                 end_pos: self.end_pos,
@@ -260,10 +262,7 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
                 address_set: true,
                 eof: bytes.is_empty(),
             },
-            end: false,
-            poll_timeout: 0,
-            in_manifest: false,
-        };
+        );
         let res = self.dfu.io.write_control(
             REQUEST_TYPE,
             DFU_DNLOAD,

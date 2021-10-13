@@ -5,10 +5,12 @@ const REQUEST_TYPE: u8 = 0b00100001;
 const DFU_GETSTATUS: u8 = 3;
 const DFU_CLRSTATUS: u8 = 4;
 
-pub(crate) type PollTimeout = u64;
-pub(crate) type Index = u8;
-// TODO make a struct?
-pub(crate) type GetStatusMessage = (Status, PollTimeout, State, Index);
+pub struct GetStatusMessage {
+    pub status: Status,
+    pub poll_timeout: u64,
+    pub state: State,
+    pub index: u8,
+}
 
 /// Command that queries the status of the device.
 #[must_use]
@@ -87,9 +89,12 @@ impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatusRecv<T> {
         status.raise_error()?;
         state.raise_error()?;
 
-        Ok(self
-            .chained_command
-            .chain((status, poll_timeout, state, i_string)))
+        Ok(self.chained_command.chain(GetStatusMessage {
+            status,
+            poll_timeout,
+            state,
+            index: i_string,
+        }))
     }
 }
 
@@ -117,12 +122,12 @@ impl<'dfu, IO: DfuIo, T> ClearStatus<'dfu, IO, T> {
 /// Command that waits for the device to enter a state.
 #[must_use]
 pub struct WaitState<'dfu, IO: DfuIo, T> {
-    pub(crate) dfu: &'dfu DfuSansIo<IO>,
-    pub(crate) state: State,
-    pub(crate) chained_command: T,
-    pub(crate) end: bool,
-    pub(crate) poll_timeout: PollTimeout,
-    pub(crate) in_manifest: bool,
+    dfu: &'dfu DfuSansIo<IO>,
+    state: State,
+    chained_command: T,
+    end: bool,
+    poll_timeout: u64,
+    in_manifest: bool,
 }
 
 /// Step to take after waiting for a state.
@@ -130,12 +135,23 @@ pub enum Step<'dfu, IO: DfuIo, T> {
     /// The state has been reached, the loop can be break.
     Break(T),
     /// The state has not been reached and the status of the device must be queried.
-    Wait(GetStatus<'dfu, IO, WaitState<'dfu, IO, T>>, PollTimeout),
+    Wait(GetStatus<'dfu, IO, WaitState<'dfu, IO, T>>, u64),
     /// The device is in manifest state and might require a USB reset.
     ManifestWaitReset(Option<reset::UsbReset<'dfu, IO, ()>>),
 }
 
 impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
+    pub fn new(dfu: &'dfu DfuSansIo<IO>, state: State, chained_command: T) -> Self {
+        Self {
+            dfu,
+            state,
+            chained_command,
+            end: false,
+            poll_timeout: 0,
+            in_manifest: false,
+        }
+    }
+
     /// Returns the next command after waiting for a state.
     pub fn next(self) -> Step<'dfu, IO, T> {
         let func_desc = self.dfu.io.functional_descriptor();
@@ -165,7 +181,15 @@ impl<'dfu, IO: DfuIo, T> ChainedCommand for WaitState<'dfu, IO, T> {
     type Arg = GetStatusMessage;
     type Into = Self;
 
-    fn chain(self, (_status, poll_timeout, state, _index): Self::Arg) -> Self::Into {
+    fn chain(
+        self,
+        GetStatusMessage {
+            status: _,
+            poll_timeout,
+            state,
+            index: _,
+        }: Self::Arg,
+    ) -> Self::Into {
         WaitState {
             dfu: self.dfu,
             chained_command: self.chained_command,
