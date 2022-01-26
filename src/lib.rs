@@ -28,7 +28,7 @@ use displaydoc::Display;
 use thiserror::Error;
 
 #[derive(Debug, Display)]
-#[cfg_attr(feature = "std", derive(Error))]
+#[cfg_attr(any(feature = "std", test), derive(Error))]
 #[allow(missing_docs)]
 pub enum Error {
     /// The device is in an invalid state (got: {got:?}, expected: {expected:?}).
