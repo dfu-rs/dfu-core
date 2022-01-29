@@ -4,7 +4,7 @@ use thiserror::Error;
 
 /// Error when reading the functional descriptor.
 #[derive(Debug, Display)]
-#[cfg_attr(feature = "std", derive(Error))]
+#[cfg_attr(any(feature = "std", test), derive(Error))]
 pub enum Error {
     /// The data is too short (got: {0}, expected: 9).
     DataTooShort(usize),
