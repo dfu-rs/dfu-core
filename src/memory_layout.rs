@@ -85,15 +85,19 @@ impl<'a> core::convert::TryFrom<&str> for MemoryLayout {
         let mut pages = Vec::new();
 
         for s in src.split(',') {
-            if s.len() < 8 {
-                return Err(Error::InvalidPageFormat(s.into()));
-            }
+            let (count, size) = s
+                .split_once('*')
+                .ok_or_else(|| Error::InvalidPageFormat(s.into()))?;
+            let (size, prefix) = size.split_at(
+                size.len()
+                    .checked_sub(2)
+                    .ok_or_else(|| Error::ParseErrorPageSize(size.into()))?,
+            );
 
             let count =
-                u32::from_str(&s[..2]).map_err(|_| Error::ParseErrorPageCount(s[..2].into()))?;
-            let size =
-                u32::from_str(&s[3..6]).map_err(|_| Error::ParseErrorPageSize(s[3..6].into()))?;
-            let prefix = match &s[6..=6] {
+                u32::from_str(count).map_err(|_| Error::ParseErrorPageCount(count.into()))?;
+            let size = u32::from_str(size).map_err(|_| Error::ParseErrorPageSize(size.into()))?;
+            let prefix = match &prefix[..1] {
                 "K" => 1024,
                 "M" => 1024 * 1024,
                 " " => 1,
@@ -126,5 +130,12 @@ mod tests {
                 262144
             ]
         );
+    }
+
+    #[test]
+    fn parsing_stm32_defuse_extensions() {
+        let s = "4*32Kg,1*128Kg";
+        let m = MemoryLayout::try_from(s).unwrap();
+        assert_eq!(m.as_slice(), &[32768, 32768, 32768, 32768, 131072]);
     }
 }
