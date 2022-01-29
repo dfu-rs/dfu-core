@@ -1,4 +1,4 @@
-![Rust](https://github.com/dfu-rs/dfu-core/workflows/Rust/badge.svg)
+![Rust](https://github.com/dfu-rs/dfu-core/workflows/main/badge.svg)
 [![Latest Version](https://img.shields.io/crates/v/dfu-core.svg)](https://crates.io/crates/dfu-core)
 ![License](https://img.shields.io/crates/l/dfu-core)
 [![Docs.rs](https://docs.rs/dfu-core/badge.svg)](https://docs.rs/dfu-core)
