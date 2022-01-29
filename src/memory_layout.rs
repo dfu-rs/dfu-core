@@ -8,15 +8,15 @@ use thiserror::Error;
 /// Error while parsing a memory layout.
 #[cfg(any(feature = "std", test))]
 #[derive(Debug, Display, Error)]
-pub enum Error<'a> {
+pub enum Error {
     /// invalid page format: {0}
-    InvalidPageFormat(&'a str),
+    InvalidPageFormat(String),
     /// could not parse page count: {0}
-    ParseErrorPageCount(&'a str),
+    ParseErrorPageCount(String),
     /// could not parse page size: {0}
-    ParseErrorPageSize(&'a str),
+    ParseErrorPageSize(String),
     /// invalid prefix: {0}
-    InvalidPrefix(&'a str),
+    InvalidPrefix(String),
 }
 
 /// A memory page size.
@@ -76,26 +76,28 @@ impl core::ops::DerefMut for MemoryLayout {
 }
 
 #[cfg(any(feature = "std", test))]
-impl<'a> core::convert::TryFrom<&'a str> for MemoryLayout {
-    type Error = Error<'a>;
+impl<'a> core::convert::TryFrom<&str> for MemoryLayout {
+    type Error = Error;
 
-    fn try_from(src: &'a str) -> Result<Self, Self::Error> {
+    fn try_from(src: &str) -> Result<Self, Self::Error> {
         use core::str::FromStr;
 
         let mut pages = Vec::new();
 
         for s in src.split(',') {
             if s.len() < 8 {
-                return Err(Error::InvalidPageFormat(s));
+                return Err(Error::InvalidPageFormat(s.into()));
             }
 
-            let count = u32::from_str(&s[..2]).map_err(|_| Error::ParseErrorPageCount(&s[..2]))?;
-            let size = u32::from_str(&s[3..6]).map_err(|_| Error::ParseErrorPageSize(&s[3..6]))?;
+            let count =
+                u32::from_str(&s[..2]).map_err(|_| Error::ParseErrorPageCount(s[..2].into()))?;
+            let size =
+                u32::from_str(&s[3..6]).map_err(|_| Error::ParseErrorPageSize(s[3..6].into()))?;
             let prefix = match &s[6..=6] {
                 "K" => 1024,
                 "M" => 1024 * 1024,
                 " " => 1,
-                other => return Err(Error::InvalidPrefix(other)),
+                other => return Err(Error::InvalidPrefix(other.into())),
             };
 
             let size = size * prefix;
