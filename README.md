@@ -42,7 +42,8 @@ DFU Documentation
 
 This crate has been made based on the following specifications:
 
-DFU 1.1 (Aug 5 2004): https://www.usb.org/sites/default/files/DFU_1.1.pdf
+ *  DFU 1.1 (Aug 5 2004): https://www.usb.org/sites/default/files/DFU_1.1.pdf
+ *  STM32/DfuSe extensions: https://www.st.com/content/ccc/resource/technical/document/user_manual/cc/6d/c3/43/ea/29/4b/eb/CD00135281.pdf/files/CD00135281.pdf/jcr:content/translations/en.CD00135281.pdf
 
 License
 -------
