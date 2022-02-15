@@ -1,4 +1,6 @@
 use super::*;
+use std::convert::TryFrom;
+use std::io::Cursor;
 use std::prelude::v1::*;
 
 /// Generic synchronous implementation of DFU.
@@ -42,6 +44,17 @@ where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
+    /// Download a slice to on to the device.
+    pub fn download_from_slice(&mut self, slice: &[u8]) -> Result<(), IO::Error> {
+        let length = slice.len();
+        let cursor = Cursor::new(slice);
+
+        self.download(
+            cursor,
+            u32::try_from(length).map_err(|_| Error::OutOfCapabilities)?,
+        )
+    }
+
     /// Download a firmware into the device.
     pub fn download<R: std::io::Read>(&mut self, reader: R, length: u32) -> Result<(), IO::Error> {
         use std::io::BufRead;
