@@ -2,6 +2,7 @@
 #![no_std]
 #![warn(missing_docs)]
 #![allow(clippy::type_complexity)]
+#![cfg_attr(docsrs, feature(doc_cfg))]
 
 #[cfg(any(feature = "std", test))]
 #[macro_use]
@@ -21,6 +22,7 @@ pub mod memory_layout;
 pub mod reset;
 /// Generic synchronous implementation.
 #[cfg(any(feature = "std", test))]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 pub mod sync;
 
 use displaydoc::Display;
@@ -59,11 +61,11 @@ pub enum Error {
 
 /// Trait to implement lower level communication with a USB device.
 pub trait DfuIo {
-    /// Return type after calling [`read_control`].
+    /// Return type after calling [`Self::read_control`].
     type Read;
-    /// Return type after calling [`write_control`].
+    /// Return type after calling [`Self::write_control`].
     type Write;
-    /// Return type after calling [`usb_reset`].
+    /// Return type after calling [`Self::usb_reset`].
     type Reset;
     /// Error type.
     type Error: From<Error>;

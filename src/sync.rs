@@ -4,6 +4,7 @@ use std::io::Cursor;
 use std::prelude::v1::*;
 
 /// Generic synchronous implementation of DFU.
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 pub struct DfuSync<IO, E>
 where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
