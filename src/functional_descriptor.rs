@@ -5,6 +5,7 @@ use thiserror::Error;
 /// Error when reading the functional descriptor.
 #[derive(Debug, Display)]
 #[cfg_attr(any(feature = "std", test), derive(Error))]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 pub enum Error {
     /// The data is too short (got: {0}, expected: 9).
     DataTooShort(usize),
