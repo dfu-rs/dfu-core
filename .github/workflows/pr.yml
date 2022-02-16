@@ -16,6 +16,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v1
 
+      - name: cargo build --no-default-features
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --workspace --no-default-features
+
       - name: cargo test
         uses: actions-rs/cargo@v1
         with:
@@ -42,6 +48,12 @@ jobs:
 
       - uses: Swatinem/rust-cache@v1
 
+      - name: cargo build --no-default-features
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --workspace --no-default-features
+
       - name: cargo test
         uses: actions-rs/cargo@v1
         with:
@@ -55,6 +67,12 @@ jobs:
         uses: actions/checkout@v2
 
       - uses: Swatinem/rust-cache@v1
+
+      - name: cargo build --no-default-features
+        uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --workspace --no-default-features
 
       - name: cargo test
         uses: actions-rs/cargo@v1

@@ -7,6 +7,7 @@ use thiserror::Error;
 
 /// Error while parsing a memory layout.
 #[cfg(any(feature = "std", test))]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 #[derive(Debug, Display, Error)]
 pub enum Error {
     /// invalid page format: {0}
@@ -28,6 +29,7 @@ pub type mem = [MemoryPage];
 
 /// Memory layout.
 #[cfg(any(feature = "std", test))]
+#[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 pub struct MemoryLayout(Vec<MemoryPage>);
 
 #[cfg(any(feature = "std", test))]
