@@ -40,7 +40,7 @@ where
     }
 
     /// Override the address.
-    pub fn set_address(self, address: u32) -> Self {
+    pub fn override_address(self, address: u32) -> Self {
         let (io, _) = self.dfu.into_parts();
 
         Self {
