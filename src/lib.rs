@@ -31,6 +31,8 @@ use thiserror::Error;
 #[cfg_attr(any(feature = "std", test), derive(Error))]
 #[allow(missing_docs)]
 pub enum Error {
+    /// The size of the data being transferred exceeds the DFU capabilities.
+    OutOfCapabilities,
     /// The device is in an invalid state (got: {got:?}, expected: {expected:?}).
     InvalidState { got: State, expected: State },
     /// Buffer size exceeds the maximum allowed.
