@@ -131,6 +131,11 @@ impl<IO: DfuIo> DfuSansIo<IO> {
             },
         })
     }
+
+    /// Consume the object and return its [`DfuIo`] and address.
+    pub fn into_parts(self) -> (IO, u32) {
+        (self.io, self.address)
+    }
 }
 
 /// DFU Status.

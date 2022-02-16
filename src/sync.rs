@@ -38,6 +38,16 @@ where
             ..self
         }
     }
+
+    /// Override the address.
+    pub fn set_address(self, address: u32) -> Self {
+        let (io, _) = self.dfu.into_parts();
+
+        Self {
+            dfu: DfuSansIo::new(io, address),
+            ..self
+        }
+    }
 }
 
 impl<IO, E> DfuSync<IO, E>
