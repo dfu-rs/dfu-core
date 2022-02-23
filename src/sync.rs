@@ -12,7 +12,7 @@ where
 {
     dfu: DfuSansIo<IO>,
     buffer: Vec<u8>,
-    progress: Option<Box<dyn Fn(usize)>>,
+    progress: Option<Box<dyn FnMut(usize)>>,
 }
 
 impl<IO, E> DfuSync<IO, E>
@@ -32,7 +32,7 @@ where
     }
 
     /// Use this closure to show progress.
-    pub fn with_progress(self, progress: impl Fn(usize) + 'static) -> Self {
+    pub fn with_progress(self, progress: impl FnMut(usize) + 'static) -> Self {
         Self {
             progress: Some(Box::new(progress)),
             ..self
@@ -109,7 +109,7 @@ where
                     let chunk = reader.fill_buf()?;
                     let (cmd, n) = cmd.download(chunk)?;
                     reader.consume(n);
-                    if let Some(progress) = self.progress.as_ref() {
+                    if let Some(progress) = self.progress.as_mut() {
                         progress(n);
                     }
                     wait_status!(cmd)
