@@ -1,6 +1,11 @@
 Changelog
 =========
 
+## v0.3.0
+
+- Change progress function to FnMut (#10)
+- Add method override_address() to change the address (#9)
+
 ## v0.2.1
 
 - Add write from slice function (#6)
