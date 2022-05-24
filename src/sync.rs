@@ -32,21 +32,15 @@ where
     }
 
     /// Use this closure to show progress.
-    pub fn with_progress(self, progress: impl FnMut(usize) + 'static) -> Self {
-        Self {
-            progress: Some(Box::new(progress)),
-            ..self
-        }
+    pub fn with_progress(&mut self, progress: impl FnMut(usize) + 'static) -> &mut Self {
+        self.progress = Some(Box::new(progress));
+        self
     }
 
     /// Override the address.
-    pub fn override_address(self, address: u32) -> Self {
-        let (io, _) = self.dfu.into_parts();
-
-        Self {
-            dfu: DfuSansIo::new(io, address),
-            ..self
-        }
+    pub fn override_address(&mut self, address: u32) -> &mut Self {
+        self.dfu.address = address;
+        self
     }
 }
 
