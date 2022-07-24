@@ -1,5 +1,6 @@
 use super::*;
 use bytes::Buf;
+use pretty_hex::PrettyHex;
 
 const REQUEST_TYPE: u8 = 0b00100001;
 const DFU_GETSTATUS: u8 = 3;
@@ -49,6 +50,7 @@ pub struct GetStatusRecv<T: ChainedCommand<Arg = GetStatusMessage>> {
 impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatusRecv<T> {
     /// Chain this command into another.
     pub fn chain(self, mut bytes: &[u8]) -> Result<T::Into, Error> {
+        log::trace!("Received device status: {}", bytes.hex_dump());
         if bytes.len() < 6 {
             return Err(Error::ResponseTooShort {
                 got: bytes.len(),
@@ -75,7 +77,9 @@ impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatusRecv<T> {
             0x0f => Status::ErrStalledpkt,
             other => Status::Other(other),
         };
+        log::trace!("Device status: {:?}", status);
         let poll_timeout = bytes.get_uint_le(3);
+        log::trace!("Poll timeout: {}", poll_timeout);
         let state = match bytes.get_u8() {
             0 => State::AppIdle,
             1 => State::AppDetach,
@@ -90,10 +94,14 @@ impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatusRecv<T> {
             10 => State::DfuError,
             other => State::Other(other),
         };
+        log::trace!("Device state: {:?}", state);
         let i_string = bytes.get_u8();
+        log::trace!("Device i string: {:#x}", i_string);
 
         status.raise_error()?;
         state.raise_error()?;
+
+        log::trace!("Device is not in error status nor error state");
 
         Ok(self.chained_command.chain(GetStatusMessage {
             status,
@@ -114,6 +122,7 @@ pub struct ClearStatus<'dfu, IO: DfuIo, T> {
 impl<'dfu, IO: DfuIo, T> ClearStatus<'dfu, IO, T> {
     /// Clear the status of the device.
     pub fn clear(self) -> Result<(T, IO::Write), IO::Error> {
+        log::trace!("Clear device status");
         let res = self
             .dfu
             .io
@@ -163,14 +172,22 @@ impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
         let func_desc = self.dfu.io.functional_descriptor();
 
         if self.end {
+            log::trace!("Device state OK");
             Step::Break(self.chained_command)
         } else if self.in_manifest && !func_desc.manifestation_tolerant {
+            log::trace!("Device in state manifest");
+            log::trace!("Device will detach? {}", func_desc.will_detach);
             Step::ManifestWaitReset((!func_desc.will_detach).then(|| reset::UsbReset {
                 dfu: self.dfu,
                 chained_command: (),
             }))
         } else {
             let poll_timeout = self.poll_timeout;
+            log::trace!(
+                "Waiting for device state: {:?} (poll timeout: {})",
+                self.state,
+                poll_timeout,
+            );
 
             Step::Wait(
                 GetStatus {
@@ -196,6 +213,7 @@ impl<'dfu, IO: DfuIo, T> ChainedCommand for WaitState<'dfu, IO, T> {
             index: _,
         }: Self::Arg,
     ) -> Self::Into {
+        log::trace!("Device state: {:?}", state);
         WaitState {
             dfu: self.dfu,
             chained_command: self.chained_command,

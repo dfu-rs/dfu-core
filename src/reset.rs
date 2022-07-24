@@ -10,6 +10,7 @@ pub struct UsbReset<'dfu, IO: DfuIo, T> {
 impl<'dfu, IO: DfuIo, T> UsbReset<'dfu, IO, T> {
     /// Reset the USB device.
     pub fn reset(self) -> (T, Result<IO::Reset, IO::Error>) {
+        log::trace!("Device reset");
         let res = self.dfu.io.usb_reset();
         let next = self.chained_command;
 
