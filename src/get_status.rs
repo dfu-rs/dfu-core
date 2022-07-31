@@ -98,11 +98,6 @@ impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatusRecv<T> {
         let i_string = bytes.get_u8();
         log::trace!("Device i string: {:#x}", i_string);
 
-        status.raise_error()?;
-        state.raise_error()?;
-
-        log::trace!("Device is not in error status nor error state");
-
         Ok(self.chained_command.chain(GetStatusMessage {
             status,
             poll_timeout,
