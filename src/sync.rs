@@ -100,7 +100,8 @@ where
         }
 
         let cmd = self.dfu.download(length)?;
-        let (cmd, _) = cmd.clear()?;
+        let (cmd, n) = cmd.get_status(&mut self.buffer)?;
+        let (cmd, _) = cmd.chain(&self.buffer[..n])??;
         let (cmd, n) = cmd.get_status(&mut self.buffer)?;
         let mut download_loop = cmd.chain(&self.buffer[..n])??;
 

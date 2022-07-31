@@ -115,18 +115,25 @@ impl<IO: DfuIo> DfuSansIo<IO> {
         &self,
         length: u32,
     ) -> Result<
-        get_status::ClearStatus<'_, IO, get_status::GetStatus<'_, IO, download::Start<'_, IO>>>,
+        get_status::GetStatus<
+            '_,
+            IO,
+            get_status::ClearStatus<'_, IO, get_status::GetStatus<'_, IO, download::Start<'_, IO>>>,
+        >,
         Error,
     > {
-        Ok(get_status::ClearStatus {
+        Ok(get_status::GetStatus {
             dfu: self,
-            chained_command: get_status::GetStatus {
+            chained_command: get_status::ClearStatus {
                 dfu: self,
-                chained_command: download::Start {
+                chained_command: get_status::GetStatus {
                     dfu: self,
-                    memory_layout: self.io.memory_layout(),
-                    address: self.address,
-                    end_pos: self.address.checked_add(length).ok_or(Error::NoSpaceLeft)?,
+                    chained_command: download::Start {
+                        dfu: self,
+                        memory_layout: self.io.memory_layout(),
+                        address: self.address,
+                        end_pos: self.address.checked_add(length).ok_or(Error::NoSpaceLeft)?,
+                    },
                 },
             },
         })

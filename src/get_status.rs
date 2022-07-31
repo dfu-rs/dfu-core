@@ -119,17 +119,33 @@ pub struct ClearStatus<'dfu, IO: DfuIo, T> {
     pub(crate) chained_command: T,
 }
 
-impl<'dfu, IO: DfuIo, T> ClearStatus<'dfu, IO, T> {
-    /// Clear the status of the device.
-    pub fn clear(self) -> Result<(T, IO::Write), IO::Error> {
-        log::trace!("Clear device status");
-        let res = self
-            .dfu
-            .io
-            .write_control(REQUEST_TYPE, DFU_CLRSTATUS, 0, &[])?;
-        let next = self.chained_command;
+impl<'dfu, IO: DfuIo, T> ChainedCommand for ClearStatus<'dfu, IO, T> {
+    type Arg = get_status::GetStatusMessage;
+    type Into = Result<(T, Option<IO::Write>), IO::Error>;
 
-        Ok((next, res))
+    /// Clear the status of the device.
+    fn chain(
+        self,
+        get_status::GetStatusMessage {
+            status: _,
+            poll_timeout: _,
+            state,
+            index: _,
+        }: Self::Arg,
+    ) -> Result<(T, Option<IO::Write>), IO::Error> {
+        let next = self.chained_command;
+        if state == State::DfuError {
+            log::trace!("Device is in error state, clearing status...");
+            let res = self
+                .dfu
+                .io
+                .write_control(REQUEST_TYPE, DFU_CLRSTATUS, 0, &[])?;
+
+            Ok((next, Some(res)))
+        } else {
+            log::trace!("Device is not in error state, skip clearing status");
+            Ok((next, None))
+        }
     }
 }
 
