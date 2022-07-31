@@ -134,6 +134,7 @@ where
     ) -> Result<(), IO::Error> {
         let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0))?)
             .map_err(|_| Error::MaximumTransferSizeExceeded)?;
+        reader.seek(std::io::SeekFrom::Start(0))?;
         self.download(reader, length)
     }
 }
