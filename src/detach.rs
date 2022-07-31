@@ -13,6 +13,7 @@ pub struct Detach<'dfu, IO: DfuIo, T> {
 impl<'dfu, IO: DfuIo, T> Detach<'dfu, IO, T> {
     /// Send the command `dfuDETACH` to the device.
     pub fn detach(self) -> Result<(T, IO::Write), IO::Error> {
+        log::trace!("Detaching device");
         let detach_timeout = self.dfu.io.functional_descriptor().detach_timeout;
         let next = self.chained_command;
         let res = self

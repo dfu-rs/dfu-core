@@ -14,6 +14,8 @@ keywords = ["dfu", "sans-io", "nostd"]
 [dependencies]
 bytes = "1"
 displaydoc = "0.2"
+log = "0.4"
+pretty-hex = "0.3"
 thiserror = { version = "1", optional = true }
 
 [dev-dependencies]

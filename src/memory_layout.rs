@@ -78,7 +78,7 @@ impl core::ops::DerefMut for MemoryLayout {
 }
 
 #[cfg(any(feature = "std", test))]
-impl<'a> core::convert::TryFrom<&str> for MemoryLayout {
+impl core::convert::TryFrom<&str> for MemoryLayout {
     type Error = Error;
 
     fn try_from(src: &str) -> Result<Self, Self::Error> {

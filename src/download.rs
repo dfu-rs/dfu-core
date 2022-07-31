@@ -25,6 +25,7 @@ impl<'dfu, IO: DfuIo> ChainedCommand for Start<'dfu, IO> {
             index: _,
         }: Self::Arg,
     ) -> Self::Into {
+        log::trace!("Starting download process");
         // TODO startup can be in AppIdle in which case the Detach-Attach process needs to be done
         if state == State::DfuIdle {
             Ok(DownloadLoop {
@@ -63,8 +64,12 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
     /// Get the next step in the download loop.
     pub fn next(self) -> Step<'dfu, IO> {
         if self.eof {
+            log::trace!("Download loop ended");
             Step::Break
         } else if self.erased_pos < self.end_pos {
+            log::trace!("Download loop: erase page");
+            log::trace!("Erased position: {}", self.erased_pos);
+            log::trace!("End position: {}", self.end_pos);
             Step::Erase(ErasePage {
                 dfu: self.dfu,
                 memory_layout: self.memory_layout,
@@ -74,6 +79,7 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
                 block_num: self.block_num,
             })
         } else if !self.address_set {
+            log::trace!("Download loop: set address");
             Step::SetAddress(SetAddress {
                 dfu: self.dfu,
                 memory_layout: self.memory_layout,
@@ -83,6 +89,7 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
                 block_num: self.block_num,
             })
         } else {
+            log::trace!("Download loop: download chunk");
             Step::DownloadChunk(DownloadChunk {
                 dfu: self.dfu,
                 memory_layout: self.memory_layout,
@@ -128,6 +135,8 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
     > {
         let (page_size, rest_memory_layout) =
             self.memory_layout.split_first().ok_or(Error::NoSpaceLeft)?;
+        log::trace!("Page size: {}", page_size);
+        log::trace!("Rest of memory layout: {:?}", rest_memory_layout);
 
         let next = get_status::WaitState::new(
             self.dfu,
@@ -229,12 +238,17 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
     > {
         use core::convert::TryFrom;
 
+        let transfer_size = self.dfu.io.functional_descriptor().transfer_size as u32;
+        log::trace!("Transfer size: {}", transfer_size);
         let len = u32::try_from(bytes.len())
             .map_err(|_| Error::BufferTooBig {
                 got: bytes.len(),
                 expected: u32::MAX as usize,
             })?
-            .min(self.dfu.io.functional_descriptor().transfer_size as u32);
+            .min(transfer_size);
+        log::trace!("Chunk length: {}", len);
+        log::trace!("Copied position: {}", self.copied_pos);
+        log::trace!("Block number: {}", self.block_num);
 
         let next = get_status::WaitState::new(
             self.dfu,
