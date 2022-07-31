@@ -124,4 +124,16 @@ where
 
         Ok(())
     }
+
+    /// Download a firmware into the device.
+    ///
+    /// The length is guest from the reader.
+    pub fn download_all<R: std::io::Read + std::io::Seek>(
+        &mut self,
+        mut reader: R,
+    ) -> Result<(), IO::Error> {
+        let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0))?)
+            .map_err(|_| Error::MaximumTransferSizeExceeded)?;
+        self.download(reader, length)
+    }
 }
