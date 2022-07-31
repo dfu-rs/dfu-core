@@ -186,16 +186,6 @@ pub enum Status {
     Other(u8),
 }
 
-impl Status {
-    pub(crate) fn raise_error(&self) -> Result<(), Error> {
-        if !matches!(self, Status::Ok | Status::Other(_)) {
-            Err(Error::StatusError(*self))
-        } else {
-            Ok(())
-        }
-    }
-}
-
 /// DFU State.
 ///
 /// Note: not the same as status!
@@ -225,16 +215,6 @@ pub enum State {
     DfuError,
     /// Other ({0}).
     Other(u8),
-}
-
-impl State {
-    pub(crate) fn raise_error(&self) -> Result<(), Error> {
-        if matches!(self, State::DfuError) {
-            Err(Error::StateError(*self))
-        } else {
-            Ok(())
-        }
-    }
 }
 
 /// A trait for commands that be chained into another.
