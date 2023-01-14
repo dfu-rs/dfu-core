@@ -198,7 +198,7 @@ pub enum State {
     /// Device is operating in the DFU mode and is waiting for requests.
     DfuIdle,
     /// Device has received a block and is waiting for the host to solicit the status via DFU_GETSTATUS.
-    DfuUnloadSync,
+    DfuDnloadSync,
     /// Device is programming a control-write block into its nonvolatile memories.
     DfuDnbusy,
     /// Device is processing a download operation.  Expecting DFU_DNLOAD requests.
