@@ -47,3 +47,23 @@ fn will_detach_and_no_manifestation_toleration() {
         .build();
     test_simple_download(mock);
 }
+
+#[test]
+fn no_will_detach_and_manifestation_toleration() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .will_detach(false)
+        .manifestation_tolerant(true)
+        .build();
+    test_simple_download(mock);
+}
+
+#[test]
+fn will_detach_and_manifestation_toleration() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .will_detach(true)
+        .manifestation_tolerant(true)
+        .build();
+    test_simple_download(mock);
+}
