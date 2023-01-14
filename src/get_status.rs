@@ -157,7 +157,7 @@ impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
         } else if self.in_manifest && !func_desc.manifestation_tolerant {
             log::trace!("Device in state manifest");
             log::trace!("Device will detach? {}", func_desc.will_detach);
-            Step::ManifestWaitReset((!func_desc.will_detach).then(|| reset::UsbReset {
+            Step::ManifestWaitReset((!func_desc.will_detach).then_some(reset::UsbReset {
                 dfu: self.dfu,
                 chained_command: (),
             }))
