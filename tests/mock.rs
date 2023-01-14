@@ -62,6 +62,7 @@ impl MockIOBuilder {
             writes: 0,
             erased: Vec::new(),
             busy: 0,
+            was_reset: false,
         });
 
         MockIO {
@@ -79,6 +80,7 @@ struct MockIOInner {
     writes: u16,
     erased: Vec<(u32, u32)>,
     busy: u16,
+    was_reset: bool,
 }
 
 pub struct MockIO {
@@ -158,6 +160,10 @@ impl MockIO {
 
     pub fn completed(&self) -> bool {
         matches!(self.state(), State::DfuManifestWaitReset | State::DfuIdle)
+    }
+
+    pub fn was_reset(&self) -> bool {
+        self.inner.borrow().was_reset
     }
 
     pub fn busy_cycles(&self, cycles: u16) {
@@ -258,6 +264,13 @@ impl dfu_core::DfuIo for MockIO {
     }
 
     fn usb_reset(&self) -> Result<Self::Reset, Self::Error> {
+        self.inner.borrow_mut().was_reset = true;
+        assert_eq!(
+            self.state(),
+            State::DfuManifestWaitReset,
+            "Wrong state for reset: {:?}",
+            self.state()
+        );
         assert!(!self.functional_descriptor.will_detach, "Unexpected Reset");
         Ok(())
     }
