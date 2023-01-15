@@ -87,12 +87,6 @@ where
                             let (cmd, n) = cmd.get_status(&mut self.buffer)?;
                             cmd.chain(&self.buffer[..n])?
                         }
-                        get_status::Step::ManifestWaitReset(None) => return Ok(()),
-                        get_status::Step::ManifestWaitReset(Some(cmd)) => {
-                            let (_, res) = cmd.reset();
-                            res?;
-                            return Ok(());
-                        }
                     };
                 }
             }};
@@ -123,6 +117,11 @@ where
                         progress(n);
                     }
                     wait_status!(cmd)
+                }
+                download::Step::UsbReset => {
+                    log::trace!("Device reset");
+                    self.dfu.io.usb_reset()?;
+                    break;
                 }
             }
         }

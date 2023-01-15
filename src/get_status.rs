@@ -121,7 +121,6 @@ pub struct WaitState<'dfu, IO: DfuIo, T> {
     chained_command: T,
     end: bool,
     poll_timeout: u64,
-    in_manifest: bool,
 }
 
 /// A step when waiting for a state.
@@ -130,8 +129,6 @@ pub enum Step<'dfu, IO: DfuIo, T> {
     Break(T),
     /// The state has not been reached and the status of the device must be queried.
     Wait(GetStatus<'dfu, IO, WaitState<'dfu, IO, T>>, u64),
-    /// The device is in manifest state and might require a USB reset.
-    ManifestWaitReset(Option<reset::UsbReset<'dfu, IO, ()>>),
 }
 
 impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
@@ -143,24 +140,14 @@ impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
             chained_command,
             end: false,
             poll_timeout: 0,
-            in_manifest: false,
         }
     }
 
     /// Returns the next command after waiting for a state.
     pub fn next(self) -> Step<'dfu, IO, T> {
-        let func_desc = self.dfu.io.functional_descriptor();
-
         if self.end {
             log::trace!("Device state OK");
             Step::Break(self.chained_command)
-        } else if self.in_manifest && !func_desc.manifestation_tolerant {
-            log::trace!("Device in state manifest");
-            log::trace!("Device will detach? {}", func_desc.will_detach);
-            Step::ManifestWaitReset((!func_desc.will_detach).then_some(reset::UsbReset {
-                dfu: self.dfu,
-                chained_command: (),
-            }))
         } else {
             let poll_timeout = self.poll_timeout;
             log::trace!(
@@ -200,7 +187,6 @@ impl<'dfu, IO: DfuIo, T> ChainedCommand for WaitState<'dfu, IO, T> {
             state: self.state,
             end: state == self.state,
             poll_timeout,
-            in_manifest: state == State::DfuManifest,
         }
     }
 }
