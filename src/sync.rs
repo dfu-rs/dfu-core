@@ -85,7 +85,7 @@ where
                         get_status::Step::Wait(cmd, poll_timeout) => {
                             std::thread::sleep(std::time::Duration::from_millis(poll_timeout));
                             let (cmd, n) = cmd.get_status(&mut self.buffer)?;
-                            cmd.chain(&self.buffer[..n])?
+                            cmd.chain(&self.buffer[..n])??
                         }
                     };
                 }

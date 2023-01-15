@@ -117,6 +117,7 @@ impl<'dfu, IO: DfuIo, T> ChainedCommand for ClearStatus<'dfu, IO, T> {
 #[must_use]
 pub struct WaitState<'dfu, IO: DfuIo, T> {
     dfu: &'dfu DfuSansIo<IO>,
+    intermediate: State,
     state: State,
     chained_command: T,
     end: bool,
@@ -133,9 +134,15 @@ pub enum Step<'dfu, IO: DfuIo, T> {
 
 impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
     /// Create a new instance of [`WaitState`].
-    pub fn new(dfu: &'dfu DfuSansIo<IO>, state: State, chained_command: T) -> Self {
+    pub fn new(
+        dfu: &'dfu DfuSansIo<IO>,
+        intermediate: State,
+        state: State,
+        chained_command: T,
+    ) -> Self {
         Self {
             dfu,
+            intermediate,
             state,
             chained_command,
             end: false,
@@ -169,7 +176,7 @@ impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
 
 impl<'dfu, IO: DfuIo, T> ChainedCommand for WaitState<'dfu, IO, T> {
     type Arg = GetStatusMessage;
-    type Into = Self;
+    type Into = Result<Self, Error>;
 
     fn chain(
         self,
@@ -181,12 +188,20 @@ impl<'dfu, IO: DfuIo, T> ChainedCommand for WaitState<'dfu, IO, T> {
         }: Self::Arg,
     ) -> Self::Into {
         log::trace!("Device state: {:?}", state);
-        WaitState {
-            dfu: self.dfu,
-            chained_command: self.chained_command,
-            state: self.state,
-            end: state == self.state,
-            poll_timeout,
+        if state == self.state || state == self.intermediate {
+            Ok(WaitState {
+                dfu: self.dfu,
+                chained_command: self.chained_command,
+                intermediate: self.intermediate,
+                state: self.state,
+                end: state == self.state,
+                poll_timeout,
+            })
+        } else {
+            Err(Error::InvalidState {
+                got: state,
+                expected: self.intermediate,
+            })
         }
     }
 }

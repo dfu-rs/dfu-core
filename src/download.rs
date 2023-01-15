@@ -150,6 +150,7 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
 
         let next = get_status::WaitState::new(
             self.dfu,
+            State::DfuDnbusy,
             State::DfuDnloadIdle,
             DownloadLoop {
                 dfu: self.dfu,
@@ -200,6 +201,7 @@ impl<'dfu, IO: DfuIo> SetAddress<'dfu, IO> {
     > {
         let next = get_status::WaitState::new(
             self.dfu,
+            State::DfuDnbusy,
             State::DfuDnloadIdle,
             DownloadLoop {
                 dfu: self.dfu,
@@ -260,14 +262,15 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
         log::trace!("Copied position: {}", self.copied_pos);
         log::trace!("Block number: {}", self.block_num);
 
-        let next_state = if bytes.is_empty() {
-            State::DfuManifest
+        let (intermediate, next_state) = if bytes.is_empty() {
+            (State::DfuManifest, State::DfuManifest)
         } else {
-            State::DfuDnloadIdle
+            (State::DfuDnbusy, State::DfuDnloadIdle)
         };
 
         let next = get_status::WaitState::new(
             self.dfu,
+            intermediate,
             next_state,
             DownloadLoop {
                 dfu: self.dfu,
