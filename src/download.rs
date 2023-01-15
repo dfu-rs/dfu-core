@@ -250,7 +250,8 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
     > {
         use core::convert::TryFrom;
 
-        let transfer_size = self.dfu.io.functional_descriptor().transfer_size as u32;
+        let descriptor = self.dfu.io.functional_descriptor();
+        let transfer_size = descriptor.transfer_size as u32;
         log::trace!("Transfer size: {}", transfer_size);
         let len = u32::try_from(bytes.len())
             .map_err(|_| Error::BufferTooBig {
@@ -263,7 +264,11 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
         log::trace!("Block number: {}", self.block_num);
 
         let (intermediate, next_state) = if bytes.is_empty() {
-            (State::DfuManifest, State::DfuManifest)
+            if descriptor.manifestation_tolerant {
+                (State::DfuManifest, State::DfuIdle)
+            } else {
+                (State::DfuManifest, State::DfuManifest)
+            }
         } else {
             (State::DfuDnbusy, State::DfuDnloadIdle)
         };
