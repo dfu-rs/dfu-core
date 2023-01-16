@@ -18,8 +18,6 @@ pub mod functional_descriptor;
 pub mod get_status;
 /// Memory layout.
 pub mod memory_layout;
-/// Commands to reset the device.
-pub mod reset;
 /// Generic synchronous implementation.
 #[cfg(any(feature = "std", test))]
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]

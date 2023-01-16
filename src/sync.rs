@@ -85,13 +85,7 @@ where
                         get_status::Step::Wait(cmd, poll_timeout) => {
                             std::thread::sleep(std::time::Duration::from_millis(poll_timeout));
                             let (cmd, n) = cmd.get_status(&mut self.buffer)?;
-                            cmd.chain(&self.buffer[..n])?
-                        }
-                        get_status::Step::ManifestWaitReset(None) => return Ok(()),
-                        get_status::Step::ManifestWaitReset(Some(cmd)) => {
-                            let (_, res) = cmd.reset();
-                            res?;
-                            return Ok(());
+                            cmd.chain(&self.buffer[..n])??
                         }
                     };
                 }
@@ -123,6 +117,11 @@ where
                         progress(n);
                     }
                     wait_status!(cmd)
+                }
+                download::Step::UsbReset => {
+                    log::trace!("Device reset");
+                    self.dfu.io.usb_reset()?;
+                    break;
                 }
             }
         }

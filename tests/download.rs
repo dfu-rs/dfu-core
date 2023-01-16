@@ -1,3 +1,4 @@
+use dfu_core::DfuIo;
 use mock::MockIO;
 
 mod mock;
@@ -17,6 +18,12 @@ fn test_simple_download(mock: MockIO) {
     dfu.download_from_slice(firmware).unwrap();
     let (mock, _) = dfu.into_parts();
 
+    let descriptor = mock.functional_descriptor();
+
+    assert_eq!(
+        mock.was_reset(),
+        !descriptor.manifestation_tolerant && !descriptor.will_detach
+    );
     assert!(mock.completed());
     assert_eq!(firmware, mock.downloaded().as_slice());
 }
@@ -37,6 +44,26 @@ fn will_detach_and_no_manifestation_toleration() {
     let mock = mock::MockIOBuilder::default()
         .manifestation_tolerant(false)
         .will_detach(true)
+        .build();
+    test_simple_download(mock);
+}
+
+#[test]
+fn no_will_detach_and_manifestation_toleration() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .will_detach(false)
+        .manifestation_tolerant(true)
+        .build();
+    test_simple_download(mock);
+}
+
+#[test]
+fn will_detach_and_manifestation_toleration() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .will_detach(true)
+        .manifestation_tolerant(true)
         .build();
     test_simple_download(mock);
 }

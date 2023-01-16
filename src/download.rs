@@ -65,7 +65,16 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
     pub fn next(self) -> Step<'dfu, IO> {
         if self.eof {
             log::trace!("Download loop ended");
-            Step::Break
+
+            let descriptor = self.dfu.io.functional_descriptor();
+            // If the device won't detach itself, it expects to be reset by the host as there is
+            // nothing more that can be done. Otherwise it is expected to detach by itself
+            log::trace!("Device will detach? {}", descriptor.will_detach);
+            if !descriptor.manifestation_tolerant && !descriptor.will_detach {
+                Step::UsbReset
+            } else {
+                Step::Break
+            }
         } else if self.erased_pos < self.end_pos {
             log::trace!("Download loop: erase page");
             log::trace!("Erased position: {}", self.erased_pos);
@@ -106,6 +115,7 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
 #[allow(missing_docs)]
 pub enum Step<'dfu, IO: DfuIo> {
     Break,
+    UsbReset,
     Erase(ErasePage<'dfu, IO>),
     SetAddress(SetAddress<'dfu, IO>),
     DownloadChunk(DownloadChunk<'dfu, IO>),
@@ -140,6 +150,7 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
 
         let next = get_status::WaitState::new(
             self.dfu,
+            State::DfuDnbusy,
             State::DfuDnloadIdle,
             DownloadLoop {
                 dfu: self.dfu,
@@ -190,6 +201,7 @@ impl<'dfu, IO: DfuIo> SetAddress<'dfu, IO> {
     > {
         let next = get_status::WaitState::new(
             self.dfu,
+            State::DfuDnbusy,
             State::DfuDnloadIdle,
             DownloadLoop {
                 dfu: self.dfu,
@@ -238,7 +250,8 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
     > {
         use core::convert::TryFrom;
 
-        let transfer_size = self.dfu.io.functional_descriptor().transfer_size as u32;
+        let descriptor = self.dfu.io.functional_descriptor();
+        let transfer_size = descriptor.transfer_size as u32;
         log::trace!("Transfer size: {}", transfer_size);
         let len = u32::try_from(bytes.len())
             .map_err(|_| Error::BufferTooBig {
@@ -250,9 +263,20 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
         log::trace!("Copied position: {}", self.copied_pos);
         log::trace!("Block number: {}", self.block_num);
 
+        let (intermediate, next_state) = if bytes.is_empty() {
+            if descriptor.manifestation_tolerant {
+                (State::DfuManifest, State::DfuIdle)
+            } else {
+                (State::DfuManifest, State::DfuManifest)
+            }
+        } else {
+            (State::DfuDnbusy, State::DfuDnloadIdle)
+        };
+
         let next = get_status::WaitState::new(
             self.dfu,
-            State::DfuDnloadIdle,
+            intermediate,
+            next_state,
             DownloadLoop {
                 dfu: self.dfu,
                 memory_layout: self.memory_layout,

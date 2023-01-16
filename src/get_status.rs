@@ -117,11 +117,11 @@ impl<'dfu, IO: DfuIo, T> ChainedCommand for ClearStatus<'dfu, IO, T> {
 #[must_use]
 pub struct WaitState<'dfu, IO: DfuIo, T> {
     dfu: &'dfu DfuSansIo<IO>,
+    intermediate: State,
     state: State,
     chained_command: T,
     end: bool,
     poll_timeout: u64,
-    in_manifest: bool,
 }
 
 /// A step when waiting for a state.
@@ -130,37 +130,31 @@ pub enum Step<'dfu, IO: DfuIo, T> {
     Break(T),
     /// The state has not been reached and the status of the device must be queried.
     Wait(GetStatus<'dfu, IO, WaitState<'dfu, IO, T>>, u64),
-    /// The device is in manifest state and might require a USB reset.
-    ManifestWaitReset(Option<reset::UsbReset<'dfu, IO, ()>>),
 }
 
 impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
     /// Create a new instance of [`WaitState`].
-    pub fn new(dfu: &'dfu DfuSansIo<IO>, state: State, chained_command: T) -> Self {
+    pub fn new(
+        dfu: &'dfu DfuSansIo<IO>,
+        intermediate: State,
+        state: State,
+        chained_command: T,
+    ) -> Self {
         Self {
             dfu,
+            intermediate,
             state,
             chained_command,
             end: false,
             poll_timeout: 0,
-            in_manifest: false,
         }
     }
 
     /// Returns the next command after waiting for a state.
     pub fn next(self) -> Step<'dfu, IO, T> {
-        let func_desc = self.dfu.io.functional_descriptor();
-
         if self.end {
             log::trace!("Device state OK");
             Step::Break(self.chained_command)
-        } else if self.in_manifest && !func_desc.manifestation_tolerant {
-            log::trace!("Device in state manifest");
-            log::trace!("Device will detach? {}", func_desc.will_detach);
-            Step::ManifestWaitReset((!func_desc.will_detach).then_some(reset::UsbReset {
-                dfu: self.dfu,
-                chained_command: (),
-            }))
         } else {
             let poll_timeout = self.poll_timeout;
             log::trace!(
@@ -182,7 +176,7 @@ impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
 
 impl<'dfu, IO: DfuIo, T> ChainedCommand for WaitState<'dfu, IO, T> {
     type Arg = GetStatusMessage;
-    type Into = Self;
+    type Into = Result<Self, Error>;
 
     fn chain(
         self,
@@ -194,13 +188,20 @@ impl<'dfu, IO: DfuIo, T> ChainedCommand for WaitState<'dfu, IO, T> {
         }: Self::Arg,
     ) -> Self::Into {
         log::trace!("Device state: {:?}", state);
-        WaitState {
-            dfu: self.dfu,
-            chained_command: self.chained_command,
-            state: self.state,
-            end: state == self.state,
-            poll_timeout,
-            in_manifest: state == State::DfuManifest,
+        if state == self.state || state == self.intermediate {
+            Ok(WaitState {
+                dfu: self.dfu,
+                chained_command: self.chained_command,
+                intermediate: self.intermediate,
+                state: self.state,
+                end: state == self.state,
+                poll_timeout,
+            })
+        } else {
+            Err(Error::InvalidState {
+                got: state,
+                expected: self.intermediate,
+            })
         }
     }
 }
