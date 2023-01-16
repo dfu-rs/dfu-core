@@ -58,42 +58,11 @@ impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatusRecv<T> {
             });
         }
 
-        let status = match bytes.get_u8() {
-            0x00 => Status::Ok,
-            0x01 => Status::ErrTarget,
-            0x02 => Status::ErrFile,
-            0x03 => Status::ErrWrite,
-            0x04 => Status::ErrErase,
-            0x05 => Status::ErrCheckErased,
-            0x06 => Status::ErrProg,
-            0x07 => Status::ErrVerify,
-            0x08 => Status::ErrAddress,
-            0x09 => Status::ErrNotdone,
-            0x0a => Status::ErrFirmware,
-            0x0b => Status::ErrVendor,
-            0x0c => Status::ErrUsbr,
-            0x0d => Status::ErrPor,
-            0x0e => Status::ErrUnknown,
-            0x0f => Status::ErrStalledpkt,
-            other => Status::Other(other),
-        };
+        let status = bytes.get_u8().into();
         log::trace!("Device status: {:?}", status);
         let poll_timeout = bytes.get_uint_le(3);
         log::trace!("Poll timeout: {}", poll_timeout);
-        let state = match bytes.get_u8() {
-            0 => State::AppIdle,
-            1 => State::AppDetach,
-            2 => State::DfuIdle,
-            3 => State::DfuUnloadSync,
-            4 => State::DfuDnbusy,
-            5 => State::DfuDnloadIdle,
-            6 => State::DfuManifestSync,
-            7 => State::DfuManifest,
-            8 => State::DfuManifestWaitReset,
-            9 => State::DfuUploadIdle,
-            10 => State::DfuError,
-            other => State::Other(other),
-        };
+        let state = bytes.get_u8().into();
         log::trace!("Device state: {:?}", state);
         let i_string = bytes.get_u8();
         log::trace!("Device i string: {:#x}", i_string);
@@ -188,7 +157,7 @@ impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
         } else if self.in_manifest && !func_desc.manifestation_tolerant {
             log::trace!("Device in state manifest");
             log::trace!("Device will detach? {}", func_desc.will_detach);
-            Step::ManifestWaitReset((!func_desc.will_detach).then(|| reset::UsbReset {
+            Step::ManifestWaitReset((!func_desc.will_detach).then_some(reset::UsbReset {
                 dfu: self.dfu,
                 chained_command: (),
             }))

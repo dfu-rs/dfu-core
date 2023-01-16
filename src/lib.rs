@@ -148,7 +148,7 @@ impl<IO: DfuIo> DfuSansIo<IO> {
 /// DFU Status.
 ///
 /// Note: not the same as state!
-#[derive(Debug, Clone, Copy, PartialEq, Display)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Display)]
 pub enum Status {
     /// No error condition is present.
     Ok,
@@ -186,10 +186,58 @@ pub enum Status {
     Other(u8),
 }
 
+impl From<u8> for Status {
+    fn from(state: u8) -> Self {
+        match state {
+            0x00 => Status::Ok,
+            0x01 => Status::ErrTarget,
+            0x02 => Status::ErrFile,
+            0x03 => Status::ErrWrite,
+            0x04 => Status::ErrErase,
+            0x05 => Status::ErrCheckErased,
+            0x06 => Status::ErrProg,
+            0x07 => Status::ErrVerify,
+            0x08 => Status::ErrAddress,
+            0x09 => Status::ErrNotdone,
+            0x0a => Status::ErrFirmware,
+            0x0b => Status::ErrVendor,
+            0x0c => Status::ErrUsbr,
+            0x0d => Status::ErrPor,
+            0x0e => Status::ErrUnknown,
+            0x0f => Status::ErrStalledpkt,
+            other => Status::Other(other),
+        }
+    }
+}
+
+impl From<Status> for u8 {
+    fn from(state: Status) -> Self {
+        match state {
+            Status::Ok => 0x00,
+            Status::ErrTarget => 0x01,
+            Status::ErrFile => 0x02,
+            Status::ErrWrite => 0x03,
+            Status::ErrErase => 0x04,
+            Status::ErrCheckErased => 0x05,
+            Status::ErrProg => 0x06,
+            Status::ErrVerify => 0x07,
+            Status::ErrAddress => 0x08,
+            Status::ErrNotdone => 0x09,
+            Status::ErrFirmware => 0x0a,
+            Status::ErrVendor => 0x0b,
+            Status::ErrUsbr => 0x0c,
+            Status::ErrPor => 0x0d,
+            Status::ErrUnknown => 0x0e,
+            Status::ErrStalledpkt => 0x0f,
+            Status::Other(other) => other,
+        }
+    }
+}
+
 /// DFU State.
 ///
 /// Note: not the same as status!
-#[derive(Debug, Clone, Copy, PartialEq, Display)]
+#[derive(Debug, Clone, Copy, Eq, PartialEq, Display)]
 pub enum State {
     /// Device is running its normal application.
     AppIdle,
@@ -198,7 +246,7 @@ pub enum State {
     /// Device is operating in the DFU mode and is waiting for requests.
     DfuIdle,
     /// Device has received a block and is waiting for the host to solicit the status via DFU_GETSTATUS.
-    DfuUnloadSync,
+    DfuDnloadSync,
     /// Device is programming a control-write block into its nonvolatile memories.
     DfuDnbusy,
     /// Device is processing a download operation.  Expecting DFU_DNLOAD requests.
@@ -215,6 +263,44 @@ pub enum State {
     DfuError,
     /// Other ({0}).
     Other(u8),
+}
+
+impl From<u8> for State {
+    fn from(state: u8) -> Self {
+        match state {
+            0 => State::AppIdle,
+            1 => State::AppDetach,
+            2 => State::DfuIdle,
+            3 => State::DfuDnloadSync,
+            4 => State::DfuDnbusy,
+            5 => State::DfuDnloadIdle,
+            6 => State::DfuManifestSync,
+            7 => State::DfuManifest,
+            8 => State::DfuManifestWaitReset,
+            9 => State::DfuUploadIdle,
+            10 => State::DfuError,
+            other => State::Other(other),
+        }
+    }
+}
+
+impl From<State> for u8 {
+    fn from(state: State) -> Self {
+        match state {
+            State::AppIdle => 0,
+            State::AppDetach => 1,
+            State::DfuIdle => 2,
+            State::DfuDnloadSync => 3,
+            State::DfuDnbusy => 4,
+            State::DfuDnloadIdle => 5,
+            State::DfuManifestSync => 6,
+            State::DfuManifest => 7,
+            State::DfuManifestWaitReset => 8,
+            State::DfuUploadIdle => 9,
+            State::DfuError => 10,
+            State::Other(other) => other,
+        }
+    }
 }
 
 /// A trait for commands that be chained into another.

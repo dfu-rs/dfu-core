@@ -42,6 +42,11 @@ where
         self.dfu.address = address;
         self
     }
+
+    /// Consume the object and return its [`DfuIo`] and address.
+    pub fn into_parts(self) -> (IO, u32) {
+        self.dfu.into_parts()
+    }
 }
 
 impl<IO, E> DfuSync<IO, E>
