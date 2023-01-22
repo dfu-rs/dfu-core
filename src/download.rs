@@ -7,9 +7,8 @@ const DFU_DNLOAD: u8 = 1;
 #[must_use]
 pub struct Start<'dfu, IO: DfuIo> {
     pub(crate) dfu: &'dfu DfuSansIo<IO>,
-    pub(crate) memory_layout: &'dfu memory_layout::mem,
-    pub(crate) address: u32,
     pub(crate) end_pos: u32,
+    pub(crate) protocol: ProtocolData,
 }
 
 impl<'dfu, IO: DfuIo> ChainedCommand for Start<'dfu, IO> {
@@ -28,14 +27,16 @@ impl<'dfu, IO: DfuIo> ChainedCommand for Start<'dfu, IO> {
         log::trace!("Starting download process");
         // TODO startup can be in AppIdle in which case the Detach-Attach process needs to be done
         if state == State::DfuIdle {
+            let (block_num, copied_pos) = match self.protocol {
+                ProtocolData::Dfu => (0, 0),
+                ProtocolData::Dfuse(d) => (2, d.address),
+            };
             Ok(DownloadLoop {
                 dfu: self.dfu,
-                memory_layout: self.memory_layout,
                 end_pos: self.end_pos,
-                copied_pos: self.address,
-                erased_pos: self.address,
-                address_set: false,
-                block_num: 2,
+                copied_pos,
+                protocol: self.protocol,
+                block_num,
                 eof: false,
             })
         } else {
@@ -47,15 +48,27 @@ impl<'dfu, IO: DfuIo> ChainedCommand for Start<'dfu, IO> {
     }
 }
 
+#[derive(Debug, Copy, Clone)]
+pub(crate) struct DfuseProtocolData {
+    pub address: u32,
+    pub erased_pos: u32,
+    pub address_set: bool,
+    pub page_size: u32,
+}
+
+#[derive(Debug, Copy, Clone)]
+pub(crate) enum ProtocolData {
+    Dfu,
+    Dfuse(DfuseProtocolData),
+}
+
 /// Download loop.
 #[must_use]
 pub struct DownloadLoop<'dfu, IO: DfuIo> {
     dfu: &'dfu DfuSansIo<IO>,
-    memory_layout: &'dfu memory_layout::mem,
+    protocol: ProtocolData,
     end_pos: u32,
     copied_pos: u32,
-    erased_pos: u32,
-    address_set: bool,
     block_num: u16,
     eof: bool,
 }
@@ -70,43 +83,46 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
             // If the device won't detach itself, it expects to be reset by the host as there is
             // nothing more that can be done. Otherwise it is expected to detach by itself
             log::trace!("Device will detach? {}", descriptor.will_detach);
-            if !descriptor.manifestation_tolerant && !descriptor.will_detach {
+            return if !descriptor.manifestation_tolerant && !descriptor.will_detach {
                 Step::UsbReset
             } else {
                 Step::Break
+            };
+        }
+
+        match self.protocol {
+            ProtocolData::Dfuse(d) if d.erased_pos < self.end_pos => {
+                log::trace!("Download loop: erase page");
+                log::trace!("Erased position: {}", d.erased_pos);
+                log::trace!("End position: {}", self.end_pos);
+                Step::Erase(ErasePage {
+                    dfu: self.dfu,
+                    end_pos: self.end_pos,
+                    copied_pos: self.copied_pos,
+                    protocol: d,
+                    block_num: self.block_num,
+                })
             }
-        } else if self.erased_pos < self.end_pos {
-            log::trace!("Download loop: erase page");
-            log::trace!("Erased position: {}", self.erased_pos);
-            log::trace!("End position: {}", self.end_pos);
-            Step::Erase(ErasePage {
-                dfu: self.dfu,
-                memory_layout: self.memory_layout,
-                end_pos: self.end_pos,
-                copied_pos: self.copied_pos,
-                erased_pos: self.erased_pos,
-                block_num: self.block_num,
-            })
-        } else if !self.address_set {
-            log::trace!("Download loop: set address");
-            Step::SetAddress(SetAddress {
-                dfu: self.dfu,
-                memory_layout: self.memory_layout,
-                end_pos: self.end_pos,
-                copied_pos: self.copied_pos,
-                erased_pos: self.erased_pos,
-                block_num: self.block_num,
-            })
-        } else {
-            log::trace!("Download loop: download chunk");
-            Step::DownloadChunk(DownloadChunk {
-                dfu: self.dfu,
-                memory_layout: self.memory_layout,
-                end_pos: self.end_pos,
-                copied_pos: self.copied_pos,
-                erased_pos: self.erased_pos,
-                block_num: self.block_num,
-            })
+            ProtocolData::Dfuse(d) if !d.address_set => {
+                log::trace!("Download loop: set address");
+                Step::SetAddress(SetAddress {
+                    dfu: self.dfu,
+                    end_pos: self.end_pos,
+                    copied_pos: self.copied_pos,
+                    protocol: d,
+                    block_num: self.block_num,
+                })
+            }
+            _ => {
+                log::trace!("Download loop: download chunk");
+                Step::DownloadChunk(DownloadChunk {
+                    dfu: self.dfu,
+                    end_pos: self.end_pos,
+                    copied_pos: self.copied_pos,
+                    block_num: self.block_num,
+                    protocol: self.protocol,
+                })
+            }
         }
     }
 }
@@ -125,10 +141,9 @@ pub enum Step<'dfu, IO: DfuIo> {
 #[must_use]
 pub struct ErasePage<'dfu, IO: DfuIo> {
     dfu: &'dfu DfuSansIo<IO>,
-    memory_layout: &'dfu memory_layout::mem,
     end_pos: u32,
     copied_pos: u32,
-    erased_pos: u32,
+    protocol: DfuseProtocolData,
     block_num: u16,
 }
 
@@ -143,26 +158,24 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
         ),
         IO::Error,
     > {
-        let (page_size, rest_memory_layout) =
-            self.memory_layout.split_first().ok_or(Error::NoSpaceLeft)?;
-        log::trace!("Page size: {}", page_size);
-        log::trace!("Rest of memory layout: {:?}", rest_memory_layout);
-
+        let next_protocol = ProtocolData::Dfuse(DfuseProtocolData {
+            erased_pos: self
+                .protocol
+                .erased_pos
+                .checked_add(self.protocol.page_size)
+                .ok_or(Error::EraseLimitReached)?,
+            ..self.protocol
+        });
         let next = get_status::WaitState::new(
             self.dfu,
             State::DfuDnbusy,
             State::DfuDnloadIdle,
             DownloadLoop {
                 dfu: self.dfu,
-                memory_layout: rest_memory_layout,
+                protocol: next_protocol,
                 end_pos: self.end_pos,
                 copied_pos: self.copied_pos,
-                erased_pos: self
-                    .erased_pos
-                    .checked_add(*page_size)
-                    .ok_or(Error::EraseLimitReached)?,
                 block_num: self.block_num,
-                address_set: false,
                 eof: false,
             },
         );
@@ -170,7 +183,7 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
             REQUEST_TYPE,
             DFU_DNLOAD,
             0,
-            &<[u8; 5]>::from(DownloadCommandErase(self.erased_pos)),
+            &<[u8; 5]>::from(DownloadCommandErase(self.protocol.erased_pos)),
         )?;
 
         Ok((next, res))
@@ -181,10 +194,9 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
 #[must_use]
 pub struct SetAddress<'dfu, IO: DfuIo> {
     dfu: &'dfu DfuSansIo<IO>,
-    memory_layout: &'dfu memory_layout::mem,
     end_pos: u32,
     copied_pos: u32,
-    erased_pos: u32,
+    protocol: DfuseProtocolData,
     block_num: u16,
 }
 
@@ -199,18 +211,21 @@ impl<'dfu, IO: DfuIo> SetAddress<'dfu, IO> {
         ),
         IO::Error,
     > {
+        let next_protocol = ProtocolData::Dfuse(DfuseProtocolData {
+            address_set: true,
+            ..self.protocol
+        });
+
         let next = get_status::WaitState::new(
             self.dfu,
             State::DfuDnbusy,
             State::DfuDnloadIdle,
             DownloadLoop {
                 dfu: self.dfu,
-                memory_layout: self.memory_layout,
                 end_pos: self.end_pos,
                 copied_pos: self.copied_pos,
-                erased_pos: self.erased_pos,
+                protocol: next_protocol,
                 block_num: self.block_num,
-                address_set: true,
                 eof: false,
             },
         );
@@ -229,11 +244,10 @@ impl<'dfu, IO: DfuIo> SetAddress<'dfu, IO> {
 #[must_use]
 pub struct DownloadChunk<'dfu, IO: DfuIo> {
     dfu: &'dfu DfuSansIo<IO>,
-    memory_layout: &'dfu memory_layout::mem,
     end_pos: u32,
     copied_pos: u32,
-    erased_pos: u32,
     block_num: u16,
+    protocol: ProtocolData,
 }
 
 impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
@@ -248,8 +262,6 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
         ),
         IO::Error,
     > {
-        use core::convert::TryFrom;
-
         let descriptor = self.dfu.io.functional_descriptor();
         let transfer_size = descriptor.transfer_size as u32;
         log::trace!("Transfer size: {}", transfer_size);
@@ -279,18 +291,16 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
             next_state,
             DownloadLoop {
                 dfu: self.dfu,
-                memory_layout: self.memory_layout,
                 end_pos: self.end_pos,
                 copied_pos: self
                     .copied_pos
                     .checked_add(len)
                     .ok_or(Error::MaximumTransferSizeExceeded)?,
-                erased_pos: self.erased_pos,
+                protocol: self.protocol,
                 block_num: self
                     .block_num
                     .checked_add(1)
                     .ok_or(Error::MaximumChunksExceeded)?,
-                address_set: true,
                 eof: bytes.is_empty(),
             },
         );

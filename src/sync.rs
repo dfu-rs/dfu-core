@@ -21,11 +21,11 @@ where
     E: From<std::io::Error> + From<Error>,
 {
     /// Create a new instance of a generic synchronous implementation of DFU.
-    pub fn new(io: IO, address: u32) -> Self {
+    pub fn new(io: IO) -> Self {
         let transfer_size = io.functional_descriptor().transfer_size as usize;
 
         Self {
-            dfu: DfuSansIo::new(io, address),
+            dfu: DfuSansIo::new(io),
             buffer: vec![0x00; transfer_size],
             progress: None,
         }
@@ -37,15 +37,9 @@ where
         self
     }
 
-    /// Override the address.
-    pub fn override_address(&mut self, address: u32) -> &mut Self {
-        self.dfu.address = address;
-        self
-    }
-
-    /// Consume the object and return its [`DfuIo`] and address.
-    pub fn into_parts(self) -> (IO, u32) {
-        self.dfu.into_parts()
+    /// Consume the object and return its [`DfuIo`]
+    pub fn into_inner(self) -> IO {
+        self.dfu.into_inner()
     }
 }
 
@@ -140,5 +134,25 @@ where
             .map_err(|_| Error::MaximumTransferSizeExceeded)?;
         reader.seek(std::io::SeekFrom::Start(0))?;
         self.download(reader, length)
+    }
+
+    /// Send a Detach request to the device
+    pub fn detach(&self) -> Result<(), IO::Error> {
+        self.dfu.detach()
+    }
+
+    /// Reset the USB device
+    pub fn usb_reset(&self) -> Result<IO::Reset, IO::Error> {
+        self.dfu.usb_reset()
+    }
+
+    /// Returns whether the device is will detach if requested
+    pub fn will_detach(&self) -> bool {
+        self.dfu.will_detach()
+    }
+
+    /// Returns whether the device is manifestation tolerant
+    pub fn manifestation_tolerant(&self) -> bool {
+        self.dfu.manifestation_tolerant()
     }
 }

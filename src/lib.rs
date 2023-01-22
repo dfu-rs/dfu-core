@@ -23,6 +23,8 @@ pub mod memory_layout;
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 pub mod sync;
 
+use core::convert::TryFrom;
+
 use displaydoc::Display;
 #[cfg(any(feature = "std", test))]
 use thiserror::Error;
@@ -55,6 +57,15 @@ pub enum Error {
     StatusError(Status),
     /// Device state is in error: {0}
     StateError(State),
+    /// Unknown DFU protocol
+    UnknownProtocol,
+    /// Failed to parse dfuse interface string
+    InvalidInterfaceString,
+    /// Failed to parse dfuse address from interface string
+    #[cfg(any(feature = "std", test))]
+    MemoryLayout(memory_layout::Error),
+    /// Failed to parse dfuse address from interface string
+    InvalidAddress,
 }
 
 /// Trait to implement lower level communication with a USB device.
@@ -67,6 +78,8 @@ pub trait DfuIo {
     type Reset;
     /// Error type.
     type Error: From<Error>;
+    /// Dfuse Memory layout type
+    type MemoryLayout: AsRef<memory_layout::mem>;
 
     /// Read data using control transfer.
     fn read_control(
@@ -89,23 +102,67 @@ pub trait DfuIo {
     /// Triggers a USB reset.
     fn usb_reset(&self) -> Result<Self::Reset, Self::Error>;
 
-    /// Returns the memory layout of the device.
-    fn memory_layout(&self) -> &memory_layout::mem;
+    /// Returns the protocol of the device
+    fn protocol(&self) -> &DfuProtocol<Self::MemoryLayout>;
 
     /// Returns the functional descriptor of the device.
     fn functional_descriptor(&self) -> &functional_descriptor::FunctionalDescriptor;
 }
 
+/// The DFU protocol variant in use
+pub enum DfuProtocol<M> {
+    /// DFU 1.1
+    Dfu,
+    /// STM DFU extensions aka DfuSe
+    Dfuse {
+        /// Start memory address
+        address: u32,
+        /// Memory layout for flash
+        memory_layout: M,
+    },
+}
+
+#[cfg(any(feature = "std", test))]
+impl DfuProtocol<memory_layout::MemoryLayout> {
+    /// Create a DFU Protocol object from the interface string and DFU version
+    pub fn new(interface_string: &str, version: (u8, u8)) -> Result<Self, Error> {
+        match version {
+            (0x1, 0x10) => Ok(DfuProtocol::Dfu),
+            (0x1, 0x1a) => {
+                let (rest, memory_layout) = interface_string
+                    .rsplit_once('/')
+                    .ok_or(Error::InvalidInterfaceString)?;
+                let memory_layout = memory_layout::MemoryLayout::try_from(memory_layout)
+                    .map_err(Error::MemoryLayout)?;
+                let (_rest, address) =
+                    rest.rsplit_once('/').ok_or(Error::InvalidInterfaceString)?;
+                let address = address
+                    .strip_prefix("0x")
+                    .and_then(|s| u32::from_str_radix(s, 16).ok())
+                    .ok_or(Error::InvalidAddress)?;
+                Ok(DfuProtocol::Dfuse {
+                    address,
+                    memory_layout,
+                })
+            }
+            _ => Err(Error::UnknownProtocol),
+        }
+    }
+}
+
 /// Use this struct to create state machines to make operations on the device.
 pub struct DfuSansIo<IO> {
     io: IO,
-    address: u32,
 }
 
 impl<IO: DfuIo> DfuSansIo<IO> {
     /// Create an instance of [`DfuSansIo`].
-    pub fn new(io: IO, address: u32) -> Self {
-        Self { io, address }
+    pub fn new(io: IO) -> Self {
+        Self { io }
+    }
+
+    fn protocol(&self) -> &DfuProtocol<IO::MemoryLayout> {
+        self.io.protocol()
     }
 
     /// Create a state machine to download the firmware into the device.
@@ -120,6 +177,32 @@ impl<IO: DfuIo> DfuSansIo<IO> {
         >,
         Error,
     > {
+        let (protocol, end_pos) = match self.protocol() {
+            DfuProtocol::Dfu => (download::ProtocolData::Dfu, length),
+            DfuProtocol::Dfuse {
+                address,
+                ref memory_layout,
+                ..
+            } => {
+                let (&page_size, rest_memory_layout) = memory_layout
+                    .as_ref()
+                    .split_first()
+                    .ok_or(Error::NoSpaceLeft)?;
+                log::trace!("Rest of memory layout: {:?}", rest_memory_layout);
+                log::trace!("Page size: {:?}", page_size);
+
+                (
+                    download::ProtocolData::Dfuse(download::DfuseProtocolData {
+                        address: *address,
+                        erased_pos: *address,
+                        address_set: false,
+                        page_size,
+                    }),
+                    address.checked_add(length).ok_or(Error::NoSpaceLeft)?,
+                )
+            }
+        };
+
         Ok(get_status::GetStatus {
             dfu: self,
             chained_command: get_status::ClearStatus {
@@ -128,18 +211,40 @@ impl<IO: DfuIo> DfuSansIo<IO> {
                     dfu: self,
                     chained_command: download::Start {
                         dfu: self,
-                        memory_layout: self.io.memory_layout(),
-                        address: self.address,
-                        end_pos: self.address.checked_add(length).ok_or(Error::NoSpaceLeft)?,
+                        protocol,
+                        end_pos,
                     },
                 },
             },
         })
     }
 
-    /// Consume the object and return its [`DfuIo`] and address.
-    pub fn into_parts(self) -> (IO, u32) {
-        (self.io, self.address)
+    /// Send a Detach request to the device
+    pub fn detach(&self) -> Result<(), IO::Error> {
+        const REQUEST_TYPE: u8 = 0b00100001;
+        const DFU_DETACH: u8 = 0;
+        self.io.write_control(REQUEST_TYPE, DFU_DETACH, 1000, &[])?;
+        Ok(())
+    }
+
+    /// Reset the USB device
+    pub fn usb_reset(&self) -> Result<IO::Reset, IO::Error> {
+        self.io.usb_reset()
+    }
+
+    /// Consume the object and return its [`DfuIo`]
+    pub fn into_inner(self) -> IO {
+        self.io
+    }
+
+    /// Returns whether the device is will detach if requested
+    pub fn will_detach(&self) -> bool {
+        self.io.functional_descriptor().will_detach
+    }
+
+    /// Returns whether the device is manifestation tolerant
+    pub fn manifestation_tolerant(&self) -> bool {
+        self.io.functional_descriptor().manifestation_tolerant
     }
 }
 
@@ -301,6 +406,20 @@ impl From<State> for u8 {
     }
 }
 
+impl State {
+    // Not all possible state are, according to the spec, possible in the GetStatus result.. As
+    // that's defined as the state the device will be as a result of the request, which may trigger
+    // state transitions. Ofcourse some devices get this wrong... So this does a reasonable
+    // converstion to what should have been the result...
+    fn for_status(self) -> Self {
+        match self {
+            State::DfuManifestSync => State::DfuManifest,
+            State::DfuDnloadSync => State::DfuDnbusy,
+            _ => self,
+        }
+    }
+}
+
 /// A trait for commands that be chained into another.
 pub trait ChainedCommand {
     /// Type of the argument to pass with the command for chaining.
@@ -318,5 +437,6 @@ mod tests {
     use std::prelude::v1::*;
 
     // ensure DfuIo can be made into an object
-    const _: [&dyn DfuIo<Read = (), Write = (), Reset = (), Error = Error>; 0] = [];
+    const _: [&dyn DfuIo<Read = (), Write = (), Reset = (), MemoryLayout = (), Error = Error>; 0] =
+        [];
 }
