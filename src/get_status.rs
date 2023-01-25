@@ -62,7 +62,8 @@ impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatusRecv<T> {
         log::trace!("Device status: {:?}", status);
         let poll_timeout = bytes.get_uint_le(3);
         log::trace!("Poll timeout: {}", poll_timeout);
-        let state = bytes.get_u8().into();
+        let state: State = bytes.get_u8().into();
+        let state = state.for_status();
         log::trace!("Device state: {:?}", state);
         let i_string = bytes.get_u8();
         log::trace!("Device i string: {:#x}", i_string);

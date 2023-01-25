@@ -13,10 +13,10 @@ fn setup() {
 
 fn test_simple_download(mock: MockIO) {
     let firmware = b"thisisnotafirmwareorisit";
-    let mut dfu = dfu_core::sync::DfuSync::new(mock, 0x0);
+    let mut dfu = dfu_core::sync::DfuSync::new(mock);
 
     dfu.download_from_slice(firmware).unwrap();
-    let (mock, _) = dfu.into_parts();
+    let mock = dfu.into_inner();
 
     let descriptor = mock.functional_descriptor();
 
@@ -64,6 +64,50 @@ fn will_detach_and_manifestation_toleration() {
     let mock = mock::MockIOBuilder::default()
         .will_detach(true)
         .manifestation_tolerant(true)
+        .build();
+    test_simple_download(mock);
+}
+
+#[test]
+fn no_will_detach_and_no_manifestation_toleration_dfuse() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .will_detach(false)
+        .manifestation_tolerant(false)
+        .dfuse(true)
+        .build();
+    test_simple_download(mock);
+}
+
+#[test]
+fn will_detach_and_no_manifestation_toleration_dfuse() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .manifestation_tolerant(false)
+        .will_detach(true)
+        .dfuse(true)
+        .build();
+    test_simple_download(mock);
+}
+
+#[test]
+fn no_will_detach_and_manifestation_toleration_dfuse() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .will_detach(false)
+        .manifestation_tolerant(true)
+        .dfuse(true)
+        .build();
+    test_simple_download(mock);
+}
+
+#[test]
+fn will_detach_and_manifestation_toleration_dfuse() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .will_detach(true)
+        .manifestation_tolerant(true)
+        .dfuse(true)
         .build();
     test_simple_download(mock);
 }

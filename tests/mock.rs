@@ -2,7 +2,8 @@ use std::{cell::RefCell, convert::TryFrom};
 
 use bytes::{Buf, BufMut};
 use dfu_core::{
-    functional_descriptor::FunctionalDescriptor, memory_layout::MemoryLayout, State, Status,
+    functional_descriptor::FunctionalDescriptor, memory_layout::MemoryLayout, DfuProtocol, State,
+    Status,
 };
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -29,6 +30,8 @@ const REQUEST_TYPE: u8 = 0b00100001;
 pub struct MockIOBuilder {
     manifestation_tolerant: bool,
     will_detach: bool,
+    // STM dfu extensions (dfuse)
+    dfuse: bool,
 }
 
 impl MockIOBuilder {
@@ -42,7 +45,25 @@ impl MockIOBuilder {
         self
     }
 
+    pub fn dfuse(mut self, dfuse: bool) -> Self {
+        self.dfuse = dfuse;
+        self
+    }
+
     pub fn build(self) -> MockIO {
+        let (dfu_version, protocol) = if !self.dfuse {
+            ((0x1, 0x10), DfuProtocol::Dfu)
+        } else {
+            (
+                (0x1, 0x1a),
+                DfuProtocol::Dfuse {
+                    address: 0x0,
+                    // 1024 pages of 4 bytes;
+                    memory_layout: MemoryLayout::try_from("1024*4 g").unwrap(),
+                },
+            )
+        };
+
         let functional_descriptor = FunctionalDescriptor {
             can_download: true,
             can_upload: false,
@@ -50,11 +71,9 @@ impl MockIOBuilder {
             will_detach: self.will_detach,
             detach_timeout: 64,
             transfer_size: 6,
-            dfu_version: (1, 1),
+            dfu_version,
         };
 
-        // 1024 pages of 4 bytes;
-        let memory_layout = MemoryLayout::try_from("1024*4 g").unwrap();
         let inner = RefCell::new(MockIOInner {
             state: State::DfuIdle,
             status: Status::Ok,
@@ -67,7 +86,7 @@ impl MockIOBuilder {
 
         MockIO {
             functional_descriptor,
-            memory_layout,
+            protocol,
             inner,
         }
     }
@@ -85,7 +104,7 @@ struct MockIOInner {
 
 pub struct MockIO {
     functional_descriptor: FunctionalDescriptor,
-    memory_layout: MemoryLayout,
+    protocol: DfuProtocol<MemoryLayout>,
     inner: RefCell<MockIOInner>,
 }
 
@@ -110,7 +129,35 @@ impl MockIO {
         Ok(6)
     }
 
-    fn download_request(&self, blocknum: u16, buffer: &[u8]) {
+    fn download_request_dfu(&self, blocknum: u16, buffer: &[u8]) {
+        let mut inner = self.inner.borrow_mut();
+        assert_eq!(inner.writes, blocknum);
+        inner.busy = inner.writes * 2;
+        inner.writes += 1;
+        inner.download.extend_from_slice(buffer);
+    }
+
+    fn check_erasures(&self, buffer: &[u8]) {
+        let inner = self.inner.borrow_mut();
+        let mut start = inner.download.len() as u32;
+        let end = start + buffer.len() as u32;
+        'l: loop {
+            for e in &inner.erased {
+                if e.0 <= start && e.0 + e.1 > start {
+                    start = e.0 + e.1;
+                    if start >= end {
+                        break 'l;
+                    } else {
+                        continue 'l;
+                    }
+                }
+            }
+
+            panic!("Unerased section: {} - {}", start, end);
+        }
+    }
+
+    fn download_request_dfuse(&self, blocknum: u16, buffer: &[u8]) {
         match blocknum {
             0 => match buffer[0] {
                 0x21 => {
@@ -128,29 +175,16 @@ impl MockIO {
             },
             1 => panic!("STM reserved block"),
             _ => {
-                let mut inner = self.inner.borrow_mut();
-                assert_eq!(inner.writes, blocknum - 2);
-                let mut start = inner.download.len() as u32;
-                let end = start + buffer.len() as u32;
-                'l: loop {
-                    for e in &inner.erased {
-                        if e.0 <= start && e.0 + e.1 > start {
-                            start = e.0 + e.1;
-                            if start >= end {
-                                break 'l;
-                            } else {
-                                continue 'l;
-                            }
-                        }
-                    }
-
-                    panic!("Unerased section: {} - {}", start, end);
-                }
-
-                inner.busy = inner.writes * 2;
-                inner.writes += 1;
-                inner.download.extend_from_slice(buffer);
+                self.check_erasures(buffer);
+                self.download_request_dfu(blocknum - 2, buffer)
             }
+        }
+    }
+
+    fn download_request(&self, blocknum: u16, buffer: &[u8]) {
+        match self.protocol {
+            DfuProtocol::Dfu => self.download_request_dfu(blocknum, buffer),
+            DfuProtocol::Dfuse { .. } => self.download_request_dfuse(blocknum, buffer),
         }
     }
 
@@ -194,6 +228,7 @@ impl dfu_core::DfuIo for MockIO {
     type Write = usize;
     type Reset = ();
     type Error = Error;
+    type MemoryLayout = MemoryLayout;
 
     fn read_control(
         &self,
@@ -275,11 +310,11 @@ impl dfu_core::DfuIo for MockIO {
         Ok(())
     }
 
-    fn memory_layout(&self) -> &dfu_core::memory_layout::mem {
-        &self.memory_layout
-    }
-
     fn functional_descriptor(&self) -> &dfu_core::functional_descriptor::FunctionalDescriptor {
         &self.functional_descriptor
+    }
+
+    fn protocol(&self) -> &dfu_core::DfuProtocol<Self::MemoryLayout> {
+        &self.protocol
     }
 }
