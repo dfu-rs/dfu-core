@@ -58,8 +58,8 @@ impl MockIOBuilder {
                 (0x1, 0x1a),
                 DfuProtocol::Dfuse {
                     address: 0x0,
-                    // 1024 pages of 4 bytes;
-                    memory_layout: MemoryLayout::try_from("1024*4 g").unwrap(),
+                    // 16 pages of 4 bytes; 8 pages of 8 bytes;
+                    memory_layout: MemoryLayout::try_from("16*4 g,8*8 g").unwrap(),
                 },
             )
         };
@@ -69,7 +69,7 @@ impl MockIOBuilder {
             can_upload: false,
             manifestation_tolerant: self.manifestation_tolerant,
             will_detach: self.will_detach,
-            detach_timeout: 64,
+            detach_timeout: 8,
             transfer_size: 6,
             dfu_version,
         };
@@ -109,6 +109,41 @@ pub struct MockIO {
 }
 
 impl MockIO {
+    pub fn size(&self) -> u32 {
+        match self.protocol {
+            DfuProtocol::Dfu => 128,
+            DfuProtocol::Dfuse {
+                ref memory_layout, ..
+            } => memory_layout.iter().sum(),
+        }
+    }
+
+    fn erase_page(&self, address: u32) {
+        let m = match self.protocol {
+            DfuProtocol::Dfu => unreachable!(),
+            DfuProtocol::Dfuse {
+                ref memory_layout, ..
+            } => memory_layout,
+        };
+
+        let mut offset = address;
+        let page_size = m
+            .iter()
+            .copied()
+            .find(|&page| match offset {
+                0 => true,
+                _ if offset >= page => {
+                    offset -= page;
+                    false
+                }
+                _ => panic!("erase not at page boundary, address: {}", address),
+            })
+            .expect("Trying to erase after flash");
+
+        let mut inner = self.inner.borrow_mut();
+        inner.erased.push((address, page_size));
+    }
+
     fn state(&self) -> State {
         self.inner.borrow().state
     }
@@ -132,7 +167,7 @@ impl MockIO {
     fn download_request_dfu(&self, blocknum: u16, buffer: &[u8]) {
         let mut inner = self.inner.borrow_mut();
         assert_eq!(inner.writes, blocknum);
-        inner.busy = inner.writes * 2;
+        inner.busy = inner.writes % 4;
         inner.writes += 1;
         inner.download.extend_from_slice(buffer);
     }
@@ -168,8 +203,7 @@ impl MockIO {
                 0x41 => {
                     // erase page
                     let addr = buffer[1..].as_ref().get_u32_le();
-                    let mut inner = self.inner.borrow_mut();
-                    inner.erased.push((addr, 4));
+                    self.erase_page(addr);
                 }
                 cmd => todo!("Command not supported: {}", cmd),
             },

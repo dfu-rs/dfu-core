@@ -8,7 +8,7 @@ const DFU_DNLOAD: u8 = 1;
 pub struct Start<'dfu, IO: DfuIo> {
     pub(crate) dfu: &'dfu DfuSansIo<IO>,
     pub(crate) end_pos: u32,
-    pub(crate) protocol: ProtocolData,
+    pub(crate) protocol: ProtocolData<'dfu>,
 }
 
 impl<'dfu, IO: DfuIo> ChainedCommand for Start<'dfu, IO> {
@@ -49,24 +49,24 @@ impl<'dfu, IO: DfuIo> ChainedCommand for Start<'dfu, IO> {
 }
 
 #[derive(Debug, Copy, Clone)]
-pub(crate) struct DfuseProtocolData {
+pub(crate) struct DfuseProtocolData<'dfu> {
     pub address: u32,
     pub erased_pos: u32,
     pub address_set: bool,
-    pub page_size: u32,
+    pub memory_layout: &'dfu memory_layout::mem,
 }
 
 #[derive(Debug, Copy, Clone)]
-pub(crate) enum ProtocolData {
+pub(crate) enum ProtocolData<'dfu> {
     Dfu,
-    Dfuse(DfuseProtocolData),
+    Dfuse(DfuseProtocolData<'dfu>),
 }
 
 /// Download loop.
 #[must_use]
 pub struct DownloadLoop<'dfu, IO: DfuIo> {
     dfu: &'dfu DfuSansIo<IO>,
-    protocol: ProtocolData,
+    protocol: ProtocolData<'dfu>,
     end_pos: u32,
     copied_pos: u32,
     block_num: u16,
@@ -143,7 +143,7 @@ pub struct ErasePage<'dfu, IO: DfuIo> {
     dfu: &'dfu DfuSansIo<IO>,
     end_pos: u32,
     copied_pos: u32,
-    protocol: DfuseProtocolData,
+    protocol: DfuseProtocolData<'dfu>,
     block_num: u16,
 }
 
@@ -158,12 +158,21 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
         ),
         IO::Error,
     > {
+        let (&page_size, rest_memory_layout) = self
+            .protocol
+            .memory_layout
+            .split_first()
+            .ok_or(Error::NoSpaceLeft)?;
+        log::trace!("Rest of memory layout: {:?}", rest_memory_layout);
+        log::trace!("Page size: {:?}", page_size);
+
         let next_protocol = ProtocolData::Dfuse(DfuseProtocolData {
             erased_pos: self
                 .protocol
                 .erased_pos
-                .checked_add(self.protocol.page_size)
+                .checked_add(page_size)
                 .ok_or(Error::EraseLimitReached)?,
+            memory_layout: rest_memory_layout,
             ..self.protocol
         });
         let next = get_status::WaitState::new(
@@ -196,7 +205,7 @@ pub struct SetAddress<'dfu, IO: DfuIo> {
     dfu: &'dfu DfuSansIo<IO>,
     end_pos: u32,
     copied_pos: u32,
-    protocol: DfuseProtocolData,
+    protocol: DfuseProtocolData<'dfu>,
     block_num: u16,
 }
 
@@ -247,7 +256,7 @@ pub struct DownloadChunk<'dfu, IO: DfuIo> {
     end_pos: u32,
     copied_pos: u32,
     block_num: u16,
-    protocol: ProtocolData,
+    protocol: ProtocolData<'dfu>,
 }
 
 impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {

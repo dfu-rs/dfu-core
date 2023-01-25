@@ -12,10 +12,15 @@ fn setup() {
 }
 
 fn test_simple_download(mock: MockIO) {
-    let firmware = b"thisisnotafirmwareorisit";
+    let size = mock.size();
+    let mut firmware = Vec::with_capacity(size as usize);
+    for i in 0..size {
+        firmware.push(i as u8);
+    }
+
     let mut dfu = dfu_core::sync::DfuSync::new(mock);
 
-    dfu.download_from_slice(firmware).unwrap();
+    dfu.download_from_slice(&firmware).unwrap();
     let mock = dfu.into_inner();
 
     let descriptor = mock.functional_descriptor();
