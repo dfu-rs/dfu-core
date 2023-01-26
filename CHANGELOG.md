@@ -1,6 +1,23 @@
 Changelog
 =========
 
+## v0.5.0
+
+- Add tests (#18)
+- Support devices that are manifestation tolerant (#19)
+- Support both dfu 1.1 and dfuse protocols (#20)
+
+## v0.4.2
+
+- Fix clearing status not working (#16)
+
+## v0.4.1
+
+- Improve logging (#12)
+- Use mutable reference instead of move (#11)
+- Skip clear status conditionally (#13)
+- Add method download_all() (#14)
+
 ## v0.3.0
 
 - Change progress function to FnMut (#10)
