@@ -181,26 +181,17 @@ impl<IO: DfuIo> DfuSansIo<IO> {
             DfuProtocol::Dfu => (download::ProtocolData::Dfu, length),
             DfuProtocol::Dfuse {
                 address,
-                ref memory_layout,
+                memory_layout,
                 ..
-            } => {
-                let (&page_size, rest_memory_layout) = memory_layout
-                    .as_ref()
-                    .split_first()
-                    .ok_or(Error::NoSpaceLeft)?;
-                log::trace!("Rest of memory layout: {:?}", rest_memory_layout);
-                log::trace!("Page size: {:?}", page_size);
-
-                (
-                    download::ProtocolData::Dfuse(download::DfuseProtocolData {
-                        address: *address,
-                        erased_pos: *address,
-                        address_set: false,
-                        page_size,
-                    }),
-                    address.checked_add(length).ok_or(Error::NoSpaceLeft)?,
-                )
-            }
+            } => (
+                download::ProtocolData::Dfuse(download::DfuseProtocolData {
+                    address: *address,
+                    erased_pos: *address,
+                    address_set: false,
+                    memory_layout: memory_layout.as_ref(),
+                }),
+                address.checked_add(length).ok_or(Error::NoSpaceLeft)?,
+            ),
         };
 
         Ok(get_status::GetStatus {
