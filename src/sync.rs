@@ -3,6 +3,44 @@ use std::convert::TryFrom;
 use std::io::Cursor;
 use std::prelude::v1::*;
 
+struct Buffer<R: std::io::Read> {
+    reader: R,
+    buf: Box<[u8]>,
+    level: usize,
+}
+
+impl<R: std::io::Read> Buffer<R> {
+    fn new(size: usize, reader: R) -> Self {
+        Self {
+            reader,
+            buf: vec![0; size].into_boxed_slice(),
+            level: 0,
+        }
+    }
+
+    fn fill_buf(&mut self) -> Result<&[u8], std::io::Error> {
+        while self.level < self.buf.len() {
+            let dst = &mut self.buf[self.level..];
+            let r = self.reader.read(dst)?;
+            if r == 0 {
+                break;
+            } else {
+                self.level += r;
+            }
+        }
+        Ok(&self.buf[0..self.level])
+    }
+
+    fn consume(&mut self, amt: usize) {
+        if amt >= self.level {
+            self.level = 0;
+        } else {
+            self.buf.copy_within(amt..self.level, 0);
+            self.level -= amt;
+        }
+    }
+}
+
 /// Generic synchronous implementation of DFU.
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
 pub struct DfuSync<IO, E>
@@ -61,10 +99,8 @@ where
 
     /// Download a firmware into the device.
     pub fn download<R: std::io::Read>(&mut self, reader: R, length: u32) -> Result<(), IO::Error> {
-        use std::io::BufRead;
-
         let transfer_size = self.dfu.io.functional_descriptor().transfer_size as usize;
-        let mut reader = std::io::BufReader::with_capacity(transfer_size, reader);
+        let mut reader = Buffer::new(transfer_size, reader);
         let buffer = reader.fill_buf()?;
         if buffer.is_empty() {
             return Ok(());
