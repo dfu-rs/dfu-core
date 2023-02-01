@@ -3,6 +3,44 @@ use mock::MockIO;
 
 mod mock;
 
+struct TestCursor<'a> {
+    data: &'a [u8],
+    offset: usize,
+    reads: usize,
+}
+
+impl<'a> TestCursor<'a> {
+    fn new(data: &'a [u8]) -> Self {
+        Self {
+            data,
+            offset: 0,
+            reads: 0,
+        }
+    }
+}
+
+impl std::io::Read for TestCursor<'_> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let remaining = self.data.len() - self.offset;
+
+        // Do 3 full reads and then 4 partial reads
+        let tocopy = if self.reads % 7 < 3 {
+            buf.len().min(remaining)
+        } else {
+            (buf.len() / 2 + 1).min(remaining)
+        };
+
+        let dst = &mut buf[0..tocopy];
+        let src = &self.data[self.offset..self.offset + tocopy];
+        dst.copy_from_slice(src);
+
+        self.offset += tocopy;
+        self.reads += 1;
+
+        Ok(tocopy)
+    }
+}
+
 fn setup() {
     let _ = env_logger::builder()
         .is_test(true)
@@ -18,9 +56,10 @@ fn test_simple_download(mock: MockIO) {
         firmware.push(i as u8);
     }
 
+    let cursor = TestCursor::new(&firmware);
     let mut dfu = dfu_core::sync::DfuSync::new(mock);
 
-    dfu.download_from_slice(&firmware).unwrap();
+    dfu.download(cursor, firmware.len() as u32).unwrap();
     let mock = dfu.into_inner();
 
     let descriptor = mock.functional_descriptor();

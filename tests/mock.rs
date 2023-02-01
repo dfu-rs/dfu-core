@@ -82,6 +82,7 @@ impl MockIOBuilder {
             erased: Vec::new(),
             busy: 0,
             was_reset: false,
+            saw_incomplete_write: false,
         });
 
         MockIO {
@@ -100,6 +101,7 @@ struct MockIOInner {
     erased: Vec<(u32, u32)>,
     busy: u16,
     was_reset: bool,
+    saw_incomplete_write: bool,
 }
 
 pub struct MockIO {
@@ -169,6 +171,13 @@ impl MockIO {
         assert_eq!(inner.writes, blocknum);
         inner.busy = inner.writes % 4;
         inner.writes += 1;
+        assert!(
+            !inner.saw_incomplete_write,
+            "Seen incomplete write before final write",
+        );
+        if buffer.len() != self.functional_descriptor.transfer_size as usize {
+            inner.saw_incomplete_write = true;
+        }
         inner.download.extend_from_slice(buffer);
     }
 
