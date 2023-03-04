@@ -86,7 +86,7 @@ where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
-    /// Download a slice to on to the device.
+    /// Download a firmware into the device from a slice.
     pub fn download_from_slice(&mut self, slice: &[u8]) -> Result<(), IO::Error> {
         let length = slice.len();
         let cursor = Cursor::new(slice);
@@ -97,7 +97,7 @@ where
         )
     }
 
-    /// Download a firmware into the device.
+    /// Download a firmware into the device from a reader.
     pub fn download<R: std::io::Read>(&mut self, reader: R, length: u32) -> Result<(), IO::Error> {
         let transfer_size = self.dfu.io.functional_descriptor().transfer_size as usize;
         let mut reader = Buffer::new(transfer_size, reader);
