@@ -32,6 +32,7 @@ pub struct MockIOBuilder {
     will_detach: bool,
     // STM dfu extensions (dfuse)
     dfuse: bool,
+    address: Option<u32>,
 }
 
 impl MockIOBuilder {
@@ -47,6 +48,11 @@ impl MockIOBuilder {
 
     pub fn dfuse(mut self, dfuse: bool) -> Self {
         self.dfuse = dfuse;
+        self
+    }
+
+    pub fn address(mut self, address: u32) -> Self {
+        self.address = Some(address);
         self
     }
 
@@ -85,10 +91,13 @@ impl MockIOBuilder {
             saw_incomplete_write: false,
         });
 
+        let address = self.address;
+
         MockIO {
             functional_descriptor,
             protocol,
             inner,
+            address,
         }
     }
 }
@@ -108,6 +117,7 @@ pub struct MockIO {
     functional_descriptor: FunctionalDescriptor,
     protocol: DfuProtocol<MemoryLayout>,
     inner: RefCell<MockIOInner>,
+    address: Option<u32>,
 }
 
 impl MockIO {
@@ -118,6 +128,10 @@ impl MockIO {
                 ref memory_layout, ..
             } => memory_layout.iter().sum(),
         }
+    }
+
+    pub fn address(&self) -> Option<u32> {
+        self.address
     }
 
     fn erase_page(&self, address: u32) {
@@ -156,6 +170,14 @@ impl MockIO {
 
     pub fn status(&self) -> Status {
         self.inner.borrow().status
+    }
+
+    fn translate_address(&self, address: u32) -> u32 {
+        if let Some(start) = self.address {
+            address.checked_sub(start).expect("Invalid address")
+        } else {
+            address
+        }
     }
 
     fn status_request(&self, buffer: &mut [u8], state: State) -> Result<usize, Error> {
@@ -207,11 +229,13 @@ impl MockIO {
                 0x21 => {
                     // set address
                     let addr = buffer[1..].as_ref().get_u32_le();
+                    let addr = self.translate_address(addr);
                     assert_eq!(addr, self.inner.borrow().download.len() as u32);
                 }
                 0x41 => {
                     // erase page
                     let addr = buffer[1..].as_ref().get_u32_le();
+                    let addr = self.translate_address(addr);
                     self.erase_page(addr);
                 }
                 cmd => todo!("Command not supported: {}", cmd),
