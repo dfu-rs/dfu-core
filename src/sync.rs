@@ -69,6 +69,14 @@ where
         }
     }
 
+    /// Override the address onto which the firmware is downloaded.
+    ///
+    /// This address is only used if the device uses the DfuSe protocol.
+    pub fn override_address(&mut self, address: u32) -> &mut Self {
+        self.dfu.set_address(address);
+        self
+    }
+
     /// Use this closure to show progress.
     pub fn with_progress(&mut self, progress: impl FnMut(usize) + 'static) -> &mut Self {
         self.progress = Some(Box::new(progress));

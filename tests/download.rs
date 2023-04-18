@@ -51,6 +51,7 @@ fn setup() {
 
 fn test_simple_download(mock: MockIO) {
     let size = mock.size();
+    let address = mock.address();
     let mut firmware = Vec::with_capacity(size as usize);
     for i in 0..size {
         firmware.push(i as u8);
@@ -58,6 +59,10 @@ fn test_simple_download(mock: MockIO) {
 
     let cursor = TestCursor::new(&firmware);
     let mut dfu = dfu_core::sync::DfuSync::new(mock);
+
+    if let Some(address) = address {
+        dfu.override_address(address);
+    }
 
     dfu.download(cursor, firmware.len() as u32).unwrap();
     let mock = dfu.into_inner();
@@ -151,6 +156,16 @@ fn will_detach_and_manifestation_toleration_dfuse() {
     let mock = mock::MockIOBuilder::default()
         .will_detach(true)
         .manifestation_tolerant(true)
+        .dfuse(true)
+        .build();
+    test_simple_download(mock);
+}
+
+#[test]
+fn override_address_dfuse() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .address(0x08004000)
         .dfuse(true)
         .build();
     test_simple_download(mock);

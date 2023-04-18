@@ -153,12 +153,16 @@ impl DfuProtocol<memory_layout::MemoryLayout> {
 /// Use this struct to create state machines to make operations on the device.
 pub struct DfuSansIo<IO> {
     io: IO,
+    override_address: Option<u32>,
 }
 
 impl<IO: DfuIo> DfuSansIo<IO> {
     /// Create an instance of [`DfuSansIo`].
     pub fn new(io: IO) -> Self {
-        Self { io }
+        Self {
+            io,
+            override_address: None,
+        }
     }
 
     fn protocol(&self) -> &DfuProtocol<IO::MemoryLayout> {
@@ -183,15 +187,18 @@ impl<IO: DfuIo> DfuSansIo<IO> {
                 address,
                 memory_layout,
                 ..
-            } => (
-                download::ProtocolData::Dfuse(download::DfuseProtocolData {
-                    address: *address,
-                    erased_pos: *address,
-                    address_set: false,
-                    memory_layout: memory_layout.as_ref(),
-                }),
-                address.checked_add(length).ok_or(Error::NoSpaceLeft)?,
-            ),
+            } => {
+                let address = self.override_address.unwrap_or(*address);
+                (
+                    download::ProtocolData::Dfuse(download::DfuseProtocolData {
+                        address,
+                        erased_pos: address,
+                        address_set: false,
+                        memory_layout: memory_layout.as_ref(),
+                    }),
+                    address.checked_add(length).ok_or(Error::NoSpaceLeft)?,
+                )
+            }
         };
 
         Ok(get_status::GetStatus {
@@ -216,6 +223,13 @@ impl<IO: DfuIo> DfuSansIo<IO> {
         const DFU_DETACH: u8 = 0;
         self.io.write_control(REQUEST_TYPE, DFU_DETACH, 1000, &[])?;
         Ok(())
+    }
+
+    /// Set the address onto which to download the firmware.
+    ///
+    /// This address is only used if the device uses the DfuSe protocol.
+    pub fn set_address(&mut self, address: u32) {
+        self.override_address = Some(address);
     }
 
     /// Reset the USB device
