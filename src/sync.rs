@@ -48,7 +48,8 @@ where
     IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
-    dfu: DfuSansIo<IO>,
+    io: IO,
+    dfu: DfuSansIo,
     buffer: Vec<u8>,
     progress: Option<Box<dyn FnMut(usize)>>,
 }
@@ -61,9 +62,11 @@ where
     /// Create a new instance of a generic synchronous implementation of DFU.
     pub fn new(io: IO) -> Self {
         let transfer_size = io.functional_descriptor().transfer_size as usize;
+        let descriptor = *io.functional_descriptor();
 
         Self {
-            dfu: DfuSansIo::new(io),
+            io,
+            dfu: DfuSansIo::new(descriptor),
             buffer: vec![0x00; transfer_size],
             progress: None,
         }
@@ -85,7 +88,7 @@ where
 
     /// Consume the object and return its [`DfuIo`]
     pub fn into_inner(self) -> IO {
-        self.dfu.into_inner()
+        self.io
     }
 }
 
@@ -107,7 +110,7 @@ where
 
     /// Download a firmware into the device from a reader.
     pub fn download<R: std::io::Read>(&mut self, reader: R, length: u32) -> Result<(), IO::Error> {
-        let transfer_size = self.dfu.io.functional_descriptor().transfer_size as usize;
+        let transfer_size = self.io.functional_descriptor().transfer_size as usize;
         let mut reader = Buffer::new(transfer_size, reader);
         let buffer = reader.fill_buf()?;
         if buffer.is_empty() {
@@ -122,34 +125,43 @@ where
                         get_status::Step::Break(cmd) => break cmd,
                         get_status::Step::Wait(cmd, poll_timeout) => {
                             std::thread::sleep(std::time::Duration::from_millis(poll_timeout));
-                            let (cmd, n) = cmd.get_status(&mut self.buffer)?;
-                            cmd.chain(&self.buffer[..n])??
+                            let (cmd, mut control) = cmd.get_status(&mut self.buffer);
+                            let n = control.execute(&self.io)?;
+                            cmd.chain(&self.buffer[..n as usize])??
                         }
                     };
                 }
             }};
         }
 
-        let cmd = self.dfu.download(length)?;
-        let (cmd, n) = cmd.get_status(&mut self.buffer)?;
-        let (cmd, _) = cmd.chain(&self.buffer[..n])??;
-        let (cmd, n) = cmd.get_status(&mut self.buffer)?;
+        let cmd = self.dfu.download(self.io.protocol(), length)?;
+        let (cmd, mut control) = cmd.get_status(&mut self.buffer);
+        let n = control.execute(&self.io)?;
+        let (cmd, control) = cmd.chain(&self.buffer[..n])?;
+        if let Some(control) = control {
+            control.execute(&self.io)?;
+        }
+        let (cmd, mut control) = cmd.get_status(&mut self.buffer);
+        let n = control.execute(&self.io)?;
         let mut download_loop = cmd.chain(&self.buffer[..n])??;
 
         loop {
             download_loop = match download_loop.next() {
                 download::Step::Break => break,
                 download::Step::Erase(cmd) => {
-                    let (cmd, _) = cmd.erase()?;
+                    let (cmd, control) = cmd.erase()?;
+                    control.execute(&self.io)?;
                     wait_status!(cmd)
                 }
                 download::Step::SetAddress(cmd) => {
-                    let (cmd, _) = cmd.set_address()?;
+                    let (cmd, control) = cmd.set_address();
+                    control.execute(&self.io)?;
                     wait_status!(cmd)
                 }
                 download::Step::DownloadChunk(cmd) => {
                     let chunk = reader.fill_buf()?;
-                    let (cmd, n) = cmd.download(chunk)?;
+                    let (cmd, control) = cmd.download(chunk)?;
+                    let n = control.execute(&self.io)?;
                     reader.consume(n);
                     if let Some(progress) = self.progress.as_mut() {
                         progress(n);
@@ -158,7 +170,7 @@ where
                 }
                 download::Step::UsbReset => {
                     log::trace!("Device reset");
-                    self.dfu.io.usb_reset()?;
+                    self.io.usb_reset()?;
                     break;
                 }
             }
@@ -182,21 +194,22 @@ where
 
     /// Send a Detach request to the device
     pub fn detach(&self) -> Result<(), IO::Error> {
-        self.dfu.detach()
+        self.dfu.detach().execute(&self.io)?;
+        Ok(())
     }
 
     /// Reset the USB device
     pub fn usb_reset(&self) -> Result<IO::Reset, IO::Error> {
-        self.dfu.usb_reset()
+        self.io.usb_reset()
     }
 
     /// Returns whether the device is will detach if requested
     pub fn will_detach(&self) -> bool {
-        self.dfu.will_detach()
+        self.io.functional_descriptor().will_detach
     }
 
     /// Returns whether the device is manifestation tolerant
     pub fn manifestation_tolerant(&self) -> bool {
-        self.dfu.manifestation_tolerant()
+        self.io.functional_descriptor().manifestation_tolerant
     }
 }

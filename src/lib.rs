@@ -26,6 +26,7 @@ pub mod sync;
 use core::convert::TryFrom;
 
 use displaydoc::Display;
+use functional_descriptor::FunctionalDescriptor;
 #[cfg(any(feature = "std", test))]
 use thiserror::Error;
 
@@ -151,37 +152,33 @@ impl DfuProtocol<memory_layout::MemoryLayout> {
 }
 
 /// Use this struct to create state machines to make operations on the device.
-pub struct DfuSansIo<IO> {
-    io: IO,
+pub struct DfuSansIo {
+    descriptor: FunctionalDescriptor,
     override_address: Option<u32>,
 }
 
-impl<IO: DfuIo> DfuSansIo<IO> {
+impl DfuSansIo {
     /// Create an instance of [`DfuSansIo`].
-    pub fn new(io: IO) -> Self {
+    pub fn new(descriptor: FunctionalDescriptor) -> Self {
         Self {
-            io,
+            descriptor,
             override_address: None,
         }
     }
 
-    fn protocol(&self) -> &DfuProtocol<IO::MemoryLayout> {
-        self.io.protocol()
-    }
-
     /// Create a state machine to download the firmware into the device.
-    pub fn download(
-        &self,
+    pub fn download<'a, Layout>(
+        &'a self,
+        protocol: &'a DfuProtocol<Layout>,
         length: u32,
     ) -> Result<
-        get_status::GetStatus<
-            '_,
-            IO,
-            get_status::ClearStatus<'_, IO, get_status::GetStatus<'_, IO, download::Start<'_, IO>>>,
-        >,
+        get_status::GetStatus<get_status::ClearStatus<get_status::GetStatus<download::Start<'a>>>>,
         Error,
-    > {
-        let (protocol, end_pos) = match self.protocol() {
+    >
+    where
+        Layout: AsRef<memory_layout::mem>,
+    {
+        let (protocol, end_pos) = match protocol {
             DfuProtocol::Dfu => (download::ProtocolData::Dfu, length),
             DfuProtocol::Dfuse {
                 address,
@@ -202,13 +199,10 @@ impl<IO: DfuIo> DfuSansIo<IO> {
         };
 
         Ok(get_status::GetStatus {
-            dfu: self,
             chained_command: get_status::ClearStatus {
-                dfu: self,
                 chained_command: get_status::GetStatus {
-                    dfu: self,
                     chained_command: download::Start {
-                        dfu: self,
+                        descriptor: &self.descriptor,
                         protocol,
                         end_pos,
                     },
@@ -218,11 +212,10 @@ impl<IO: DfuIo> DfuSansIo<IO> {
     }
 
     /// Send a Detach request to the device
-    pub fn detach(&self) -> Result<(), IO::Error> {
+    pub fn detach(&self) -> UsbWriteControl<[u8; 0]> {
         const REQUEST_TYPE: u8 = 0b00100001;
         const DFU_DETACH: u8 = 0;
-        self.io.write_control(REQUEST_TYPE, DFU_DETACH, 1000, &[])?;
-        Ok(())
+        UsbWriteControl::new(REQUEST_TYPE, DFU_DETACH, 1000, [])
     }
 
     /// Set the address onto which to download the firmware.
@@ -230,26 +223,6 @@ impl<IO: DfuIo> DfuSansIo<IO> {
     /// This address is only used if the device uses the DfuSe protocol.
     pub fn set_address(&mut self, address: u32) {
         self.override_address = Some(address);
-    }
-
-    /// Reset the USB device
-    pub fn usb_reset(&self) -> Result<IO::Reset, IO::Error> {
-        self.io.usb_reset()
-    }
-
-    /// Consume the object and return its [`DfuIo`]
-    pub fn into_inner(self) -> IO {
-        self.io
-    }
-
-    /// Returns whether the device is will detach if requested
-    pub fn will_detach(&self) -> bool {
-        self.io.functional_descriptor().will_detach
-    }
-
-    /// Returns whether the device is manifestation tolerant
-    pub fn manifestation_tolerant(&self) -> bool {
-        self.io.functional_descriptor().manifestation_tolerant
     }
 }
 
@@ -434,6 +407,64 @@ pub trait ChainedCommand {
 
     /// Chain this command into another.
     fn chain(self, arg: Self::Arg) -> Self::Into;
+}
+
+/// Usb write request
+#[must_use]
+pub struct UsbWriteControl<D> {
+    request_type: u8,
+    request: u8,
+    value: u16,
+    buffer: D,
+}
+
+impl<D> UsbWriteControl<D>
+where
+    D: AsRef<[u8]>,
+{
+    fn new(request_type: u8, request: u8, value: u16, buffer: D) -> Self {
+        Self {
+            request_type,
+            request,
+            value,
+            buffer,
+        }
+    }
+
+    /// Execute usb write using io
+    pub fn execute<IO: DfuIo>(&self, io: &IO) -> Result<IO::Write, IO::Error> {
+        io.write_control(
+            self.request_type,
+            self.request,
+            self.value,
+            self.buffer.as_ref(),
+        )
+    }
+}
+
+/// Usb read request
+#[must_use]
+pub struct UsbReadControl<'a> {
+    request_type: u8,
+    request: u8,
+    value: u16,
+    buffer: &'a mut [u8],
+}
+
+impl<'a> UsbReadControl<'a> {
+    fn new(request_type: u8, request: u8, value: u16, buffer: &'a mut [u8]) -> Self {
+        Self {
+            request_type,
+            request,
+            value,
+            buffer,
+        }
+    }
+
+    /// Execute usb write using io
+    pub fn execute<IO: DfuIo>(&mut self, io: &IO) -> Result<IO::Read, IO::Error> {
+        io.read_control(self.request_type, self.request, self.value, self.buffer)
+    }
 }
 
 #[cfg(test)]

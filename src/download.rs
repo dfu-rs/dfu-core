@@ -1,3 +1,5 @@
+use functional_descriptor::FunctionalDescriptor;
+
 use super::*;
 
 const REQUEST_TYPE: u8 = 0b00100001;
@@ -5,15 +7,15 @@ const DFU_DNLOAD: u8 = 1;
 
 /// Starting point to download a firmware into a device.
 #[must_use]
-pub struct Start<'dfu, IO: DfuIo> {
-    pub(crate) dfu: &'dfu DfuSansIo<IO>,
+pub struct Start<'dfu> {
+    pub(crate) descriptor: &'dfu FunctionalDescriptor,
     pub(crate) end_pos: u32,
     pub(crate) protocol: ProtocolData<'dfu>,
 }
 
-impl<'dfu, IO: DfuIo> ChainedCommand for Start<'dfu, IO> {
+impl<'dfu> ChainedCommand for Start<'dfu> {
     type Arg = get_status::GetStatusMessage;
-    type Into = Result<DownloadLoop<'dfu, IO>, Error>;
+    type Into = Result<DownloadLoop<'dfu>, Error>;
 
     fn chain(
         self,
@@ -32,7 +34,7 @@ impl<'dfu, IO: DfuIo> ChainedCommand for Start<'dfu, IO> {
                 ProtocolData::Dfuse(d) => (2, d.address),
             };
             Ok(DownloadLoop {
-                dfu: self.dfu,
+                descriptor: self.descriptor,
                 end_pos: self.end_pos,
                 copied_pos,
                 protocol: self.protocol,
@@ -64,8 +66,8 @@ pub(crate) enum ProtocolData<'dfu> {
 
 /// Download loop.
 #[must_use]
-pub struct DownloadLoop<'dfu, IO: DfuIo> {
-    dfu: &'dfu DfuSansIo<IO>,
+pub struct DownloadLoop<'dfu> {
+    descriptor: &'dfu FunctionalDescriptor,
     protocol: ProtocolData<'dfu>,
     end_pos: u32,
     copied_pos: u32,
@@ -73,17 +75,16 @@ pub struct DownloadLoop<'dfu, IO: DfuIo> {
     eof: bool,
 }
 
-impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
+impl<'dfu> DownloadLoop<'dfu> {
     /// Get the next step in the download loop.
-    pub fn next(self) -> Step<'dfu, IO> {
+    pub fn next(self) -> Step<'dfu> {
         if self.eof {
             log::trace!("Download loop ended");
 
-            let descriptor = self.dfu.io.functional_descriptor();
             // If the device won't detach itself, it expects to be reset by the host as there is
             // nothing more that can be done. Otherwise it is expected to detach by itself
-            log::trace!("Device will detach? {}", descriptor.will_detach);
-            return if !descriptor.manifestation_tolerant && !descriptor.will_detach {
+            log::trace!("Device will detach? {}", self.descriptor.will_detach);
+            return if !self.descriptor.manifestation_tolerant && !self.descriptor.will_detach {
                 Step::UsbReset
             } else {
                 Step::Break
@@ -96,7 +97,7 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
                 log::trace!("Erased position: {}", d.erased_pos);
                 log::trace!("End position: {}", self.end_pos);
                 Step::Erase(ErasePage {
-                    dfu: self.dfu,
+                    descriptor: self.descriptor,
                     end_pos: self.end_pos,
                     copied_pos: self.copied_pos,
                     protocol: d,
@@ -106,7 +107,7 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
             ProtocolData::Dfuse(d) if !d.address_set => {
                 log::trace!("Download loop: set address");
                 Step::SetAddress(SetAddress {
-                    dfu: self.dfu,
+                    descriptor: self.descriptor,
                     end_pos: self.end_pos,
                     copied_pos: self.copied_pos,
                     protocol: d,
@@ -116,7 +117,7 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
             _ => {
                 log::trace!("Download loop: download chunk");
                 Step::DownloadChunk(DownloadChunk {
-                    dfu: self.dfu,
+                    descriptor: self.descriptor,
                     end_pos: self.end_pos,
                     copied_pos: self.copied_pos,
                     block_num: self.block_num,
@@ -129,34 +130,34 @@ impl<'dfu, IO: DfuIo> DownloadLoop<'dfu, IO> {
 
 /// Download step in the loop.
 #[allow(missing_docs)]
-pub enum Step<'dfu, IO: DfuIo> {
+pub enum Step<'dfu> {
     Break,
     UsbReset,
-    Erase(ErasePage<'dfu, IO>),
-    SetAddress(SetAddress<'dfu, IO>),
-    DownloadChunk(DownloadChunk<'dfu, IO>),
+    Erase(ErasePage<'dfu>),
+    SetAddress(SetAddress<'dfu>),
+    DownloadChunk(DownloadChunk<'dfu>),
 }
 
 /// Erase a memory page.
 #[must_use]
-pub struct ErasePage<'dfu, IO: DfuIo> {
-    dfu: &'dfu DfuSansIo<IO>,
+pub struct ErasePage<'dfu> {
+    descriptor: &'dfu FunctionalDescriptor,
     end_pos: u32,
     copied_pos: u32,
     protocol: DfuseProtocolData<'dfu>,
     block_num: u16,
 }
 
-impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
+impl<'dfu> ErasePage<'dfu> {
     /// Erase a memory page.
     pub fn erase(
         self,
     ) -> Result<
         (
-            get_status::WaitState<'dfu, IO, DownloadLoop<'dfu, IO>>,
-            IO::Write,
+            get_status::WaitState<DownloadLoop<'dfu>>,
+            UsbWriteControl<[u8; 5]>,
         ),
-        IO::Error,
+        crate::Error,
     > {
         let (&page_size, rest_memory_layout) = self
             .protocol
@@ -176,11 +177,10 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
             ..self.protocol
         });
         let next = get_status::WaitState::new(
-            self.dfu,
             State::DfuDnbusy,
             State::DfuDnloadIdle,
             DownloadLoop {
-                dfu: self.dfu,
+                descriptor: self.descriptor,
                 protocol: next_protocol,
                 end_pos: self.end_pos,
                 copied_pos: self.copied_pos,
@@ -188,49 +188,46 @@ impl<'dfu, IO: DfuIo> ErasePage<'dfu, IO> {
                 eof: false,
             },
         );
-        let res = self.dfu.io.write_control(
-            REQUEST_TYPE,
-            DFU_DNLOAD,
-            0,
-            &<[u8; 5]>::from(DownloadCommandErase(self.protocol.erased_pos)),
-        )?;
 
-        Ok((next, res))
+        let control = UsbWriteControl {
+            request_type: REQUEST_TYPE,
+            request: DFU_DNLOAD,
+            value: 0,
+            buffer: <[u8; 5]>::from(DownloadCommandErase(self.protocol.erased_pos)),
+        };
+
+        Ok((next, control))
     }
 }
 
 /// Set the address for download.
 #[must_use]
-pub struct SetAddress<'dfu, IO: DfuIo> {
-    dfu: &'dfu DfuSansIo<IO>,
+pub struct SetAddress<'dfu> {
+    descriptor: &'dfu FunctionalDescriptor,
     end_pos: u32,
     copied_pos: u32,
     protocol: DfuseProtocolData<'dfu>,
     block_num: u16,
 }
 
-impl<'dfu, IO: DfuIo> SetAddress<'dfu, IO> {
+impl<'dfu> SetAddress<'dfu> {
     /// Set the address for download.
     pub fn set_address(
         self,
-    ) -> Result<
-        (
-            get_status::WaitState<'dfu, IO, DownloadLoop<'dfu, IO>>,
-            IO::Write,
-        ),
-        IO::Error,
-    > {
+    ) -> (
+        get_status::WaitState<DownloadLoop<'dfu>>,
+        UsbWriteControl<[u8; 5]>,
+    ) {
         let next_protocol = ProtocolData::Dfuse(DfuseProtocolData {
             address_set: true,
             ..self.protocol
         });
 
         let next = get_status::WaitState::new(
-            self.dfu,
             State::DfuDnbusy,
             State::DfuDnloadIdle,
             DownloadLoop {
-                dfu: self.dfu,
+                descriptor: self.descriptor,
                 end_pos: self.end_pos,
                 copied_pos: self.copied_pos,
                 protocol: next_protocol,
@@ -238,41 +235,40 @@ impl<'dfu, IO: DfuIo> SetAddress<'dfu, IO> {
                 eof: false,
             },
         );
-        let res = self.dfu.io.write_control(
+        let control = UsbWriteControl::new(
             REQUEST_TYPE,
             DFU_DNLOAD,
             0,
-            &<[u8; 5]>::from(DownloadCommandSetAddress(self.copied_pos)),
-        )?;
+            <[u8; 5]>::from(DownloadCommandSetAddress(self.copied_pos)),
+        );
 
-        Ok((next, res))
+        (next, control)
     }
 }
 
 /// Download a chunk of data into the device.
 #[must_use]
-pub struct DownloadChunk<'dfu, IO: DfuIo> {
-    dfu: &'dfu DfuSansIo<IO>,
+pub struct DownloadChunk<'dfu> {
+    descriptor: &'dfu FunctionalDescriptor,
     end_pos: u32,
     copied_pos: u32,
     block_num: u16,
     protocol: ProtocolData<'dfu>,
 }
 
-impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
+impl<'dfu> DownloadChunk<'dfu> {
     /// Download a chunk of data into the device.
-    pub fn download(
+    pub fn download<'data>(
         self,
-        bytes: &[u8],
+        bytes: &'data [u8],
     ) -> Result<
         (
-            get_status::WaitState<'dfu, IO, DownloadLoop<'dfu, IO>>,
-            IO::Write,
+            get_status::WaitState<DownloadLoop<'dfu>>,
+            UsbWriteControl<&'data [u8]>,
         ),
-        IO::Error,
+        crate::Error,
     > {
-        let descriptor = self.dfu.io.functional_descriptor();
-        let transfer_size = descriptor.transfer_size as u32;
+        let transfer_size = self.descriptor.transfer_size as u32;
         log::trace!("Transfer size: {}", transfer_size);
         let len = u32::try_from(bytes.len())
             .map_err(|_| Error::BufferTooBig {
@@ -285,7 +281,7 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
         log::trace!("Block number: {}", self.block_num);
 
         let (intermediate, next_state) = if bytes.is_empty() {
-            if descriptor.manifestation_tolerant {
+            if self.descriptor.manifestation_tolerant {
                 (State::DfuManifest, State::DfuIdle)
             } else {
                 (State::DfuManifest, State::DfuManifest)
@@ -295,11 +291,10 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
         };
 
         let next = get_status::WaitState::new(
-            self.dfu,
             intermediate,
             next_state,
             DownloadLoop {
-                dfu: self.dfu,
+                descriptor: self.descriptor,
                 end_pos: self.end_pos,
                 copied_pos: self
                     .copied_pos
@@ -313,14 +308,14 @@ impl<'dfu, IO: DfuIo> DownloadChunk<'dfu, IO> {
                 eof: bytes.is_empty(),
             },
         );
-        let res = self.dfu.io.write_control(
-            REQUEST_TYPE,
-            DFU_DNLOAD,
-            self.block_num,
-            &bytes[..len as usize],
-        )?;
+        let control = UsbWriteControl {
+            request_type: REQUEST_TYPE,
+            request: DFU_DNLOAD,
+            value: self.block_num,
+            buffer: &bytes[..len as usize],
+        };
 
-        Ok((next, res))
+        Ok((next, control))
     }
 }
 
