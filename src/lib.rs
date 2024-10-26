@@ -8,6 +8,10 @@
 #[macro_use]
 extern crate std;
 
+/// Generic asynchronous implementation.
+#[cfg(feature = "async")]
+#[cfg_attr(docsrs, doc(cfg(feature = "async")))]
+pub mod asynchronous;
 /// Commands to detach the device.
 pub mod detach;
 /// Commands to download a firmware into the device.

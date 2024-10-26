@@ -10,10 +10,12 @@ homepage = "https://github.com/dfu-rs/dfu-core"
 documentation = "https://docs.rs/dfu-core"
 readme = "README.md"
 keywords = ["dfu", "sans-io", "nostd"]
+autotests = false
 
 [dependencies]
 bytes = "1"
 displaydoc = "0.2"
+futures = {version = "0.3.31", optional = true }
 log = "0.4"
 pretty-hex = "0.3"
 thiserror = { version = "1", optional = true }
@@ -21,13 +23,24 @@ thiserror = { version = "1", optional = true }
 [dev-dependencies]
 dfu-core = { path = ".", features = [ "std" ] }
 env_logger = "0.10.0"
+futures-test = "0.3.31"
 num-derive = "0.3.3"
 num-traits = "0.2.15"
 thiserror = "1"
 
 [features]
-std = ["thiserror"]
+std = ["dep:thiserror"]
+async = ["dep:futures", "std"]
 
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[[test]]
+name = "download"
+path = "tests/download.rs"
+
+[[test]]
+name = "download_async"
+path = "tests/download_async.rs"
+required-features = [ "async"]
