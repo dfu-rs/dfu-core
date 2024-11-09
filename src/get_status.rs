@@ -20,23 +20,20 @@ pub struct GetStatusMessage {
 
 /// Command that queries the status of the device.
 #[must_use]
-pub struct GetStatus<'dfu, IO: DfuIo, T: ChainedCommand<Arg = GetStatusMessage>> {
-    pub(crate) dfu: &'dfu DfuSansIo<IO>,
+pub struct GetStatus<T: ChainedCommand<Arg = GetStatusMessage>> {
     pub(crate) chained_command: T,
 }
 
-impl<'dfu, IO: DfuIo, T: ChainedCommand<Arg = GetStatusMessage>> GetStatus<'dfu, IO, T> {
+impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatus<T> {
     /// Query the status of the device.
-    pub fn get_status(self, buffer: &mut [u8]) -> Result<(GetStatusRecv<T>, IO::Read), IO::Error> {
+    pub fn get_status(self, buffer: &mut [u8]) -> (GetStatusRecv<T>, UsbReadControl) {
         debug_assert!(buffer.len() >= 6);
         let next = GetStatusRecv {
             chained_command: self.chained_command,
         };
-        let res = self
-            .dfu
-            .io
-            .read_control(REQUEST_TYPE, DFU_GETSTATUS, 0, buffer)?;
-        Ok((next, res))
+
+        let control = UsbReadControl::new(REQUEST_TYPE, DFU_GETSTATUS, 0, buffer);
+        (next, control)
     }
 }
 
@@ -79,14 +76,13 @@ impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatusRecv<T> {
 
 /// Command that clears the status of the device.
 #[must_use]
-pub struct ClearStatus<'dfu, IO: DfuIo, T> {
-    pub(crate) dfu: &'dfu DfuSansIo<IO>,
+pub struct ClearStatus<T> {
     pub(crate) chained_command: T,
 }
 
-impl<'dfu, IO: DfuIo, T> ChainedCommand for ClearStatus<'dfu, IO, T> {
+impl<T> ChainedCommand for ClearStatus<T> {
     type Arg = get_status::GetStatusMessage;
-    type Into = Result<(T, Option<IO::Write>), IO::Error>;
+    type Into = (T, Option<UsbWriteControl<[u8; 0]>>);
 
     /// Clear the status of the device.
     fn chain(
@@ -97,27 +93,23 @@ impl<'dfu, IO: DfuIo, T> ChainedCommand for ClearStatus<'dfu, IO, T> {
             state,
             index: _,
         }: Self::Arg,
-    ) -> Result<(T, Option<IO::Write>), IO::Error> {
+    ) -> (T, Option<UsbWriteControl<[u8; 0]>>) {
         let next = self.chained_command;
         if state == State::DfuError {
             log::trace!("Device is in error state, clearing status...");
-            let res = self
-                .dfu
-                .io
-                .write_control(REQUEST_TYPE, DFU_CLRSTATUS, 0, &[])?;
+            let control = UsbWriteControl::new(REQUEST_TYPE, DFU_CLRSTATUS, 0, []);
 
-            Ok((next, Some(res)))
+            (next, Some(control))
         } else {
             log::trace!("Device is not in error state, skip clearing status");
-            Ok((next, None))
+            (next, None)
         }
     }
 }
 
 /// Wait for the device to enter a specific state.
 #[must_use]
-pub struct WaitState<'dfu, IO: DfuIo, T> {
-    dfu: &'dfu DfuSansIo<IO>,
+pub struct WaitState<T> {
     intermediate: State,
     state: State,
     chained_command: T,
@@ -127,22 +119,16 @@ pub struct WaitState<'dfu, IO: DfuIo, T> {
 
 /// A step when waiting for a state.
 #[allow(missing_docs)]
-pub enum Step<'dfu, IO: DfuIo, T> {
+pub enum Step<T> {
     Break(T),
     /// The state has not been reached and the status of the device must be queried.
-    Wait(GetStatus<'dfu, IO, WaitState<'dfu, IO, T>>, u64),
+    Wait(GetStatus<WaitState<T>>, u64),
 }
 
-impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
+impl<T> WaitState<T> {
     /// Create a new instance of [`WaitState`].
-    pub fn new(
-        dfu: &'dfu DfuSansIo<IO>,
-        intermediate: State,
-        state: State,
-        chained_command: T,
-    ) -> Self {
+    pub fn new(intermediate: State, state: State, chained_command: T) -> Self {
         Self {
-            dfu,
             intermediate,
             state,
             chained_command,
@@ -152,7 +138,7 @@ impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
     }
 
     /// Returns the next command after waiting for a state.
-    pub fn next(self) -> Step<'dfu, IO, T> {
+    pub fn next(self) -> Step<T> {
         if self.end {
             log::trace!("Device state OK");
             Step::Break(self.chained_command)
@@ -166,7 +152,6 @@ impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
 
             Step::Wait(
                 GetStatus {
-                    dfu: self.dfu,
                     chained_command: self,
                 },
                 poll_timeout,
@@ -175,7 +160,7 @@ impl<'dfu, IO: DfuIo, T> WaitState<'dfu, IO, T> {
     }
 }
 
-impl<'dfu, IO: DfuIo, T> ChainedCommand for WaitState<'dfu, IO, T> {
+impl<T> ChainedCommand for WaitState<T> {
     type Arg = GetStatusMessage;
     type Into = Result<Self, Error>;
 
@@ -191,7 +176,6 @@ impl<'dfu, IO: DfuIo, T> ChainedCommand for WaitState<'dfu, IO, T> {
         log::trace!("Device state: {:?}", state);
         if state == self.state || state == self.intermediate {
             Ok(WaitState {
-                dfu: self.dfu,
                 chained_command: self.chained_command,
                 intermediate: self.intermediate,
                 state: self.state,

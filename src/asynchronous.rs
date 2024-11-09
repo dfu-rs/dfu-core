@@ -1,15 +1,82 @@
+use futures::{io::Cursor, AsyncRead, AsyncReadExt, AsyncSeek, AsyncSeekExt};
+
 use super::*;
+use core::future::Future;
 use std::convert::TryFrom;
-use std::io::Cursor;
 use std::prelude::v1::*;
 
-struct Buffer<R: std::io::Read> {
+/// Trait to implement lower level communication with a USB device.
+pub trait DfuAsyncIo {
+    /// Return type after calling [`Self::read_control`].
+    type Read;
+    /// Return type after calling [`Self::write_control`].
+    type Write;
+    /// Return type after calling [`Self::usb_reset`].
+    type Reset;
+    /// Error type.
+    type Error: From<Error>;
+    /// Dfuse Memory layout type
+    type MemoryLayout: AsRef<memory_layout::mem>;
+
+    /// Read data using control transfer.
+    fn read_control(
+        &self,
+        request_type: u8,
+        request: u8,
+        value: u16,
+        buffer: &mut [u8],
+    ) -> impl Future<Output = Result<Self::Read, Self::Error>> + Send;
+
+    /// Write data using control transfer.
+    fn write_control(
+        &self,
+        request_type: u8,
+        request: u8,
+        value: u16,
+        buffer: &[u8],
+    ) -> impl Future<Output = Result<Self::Write, Self::Error>> + Send;
+
+    /// Triggers a USB reset.
+    fn usb_reset(&self) -> impl Future<Output = Result<Self::Reset, Self::Error>> + Send;
+
+    /// Returns the protocol of the device
+    fn protocol(&self) -> &DfuProtocol<Self::MemoryLayout>;
+
+    /// Returns the functional descriptor of the device.
+    fn functional_descriptor(&self) -> &functional_descriptor::FunctionalDescriptor;
+}
+
+impl UsbReadControl<'_> {
+    /// Execute usb write using io
+    pub async fn execute_async<IO: DfuAsyncIo>(&mut self, io: &IO) -> Result<IO::Read, IO::Error> {
+        io.read_control(self.request_type, self.request, self.value, self.buffer)
+            .await
+    }
+}
+
+impl<D> UsbWriteControl<D>
+where
+    D: AsRef<[u8]>,
+{
+    /// Execute usb write using io
+    pub async fn execute_async<IO: DfuAsyncIo>(&self, io: &IO) -> Result<IO::Write, IO::Error> {
+        io.write_control(
+            self.request_type,
+            self.request,
+            self.value,
+            self.buffer.as_ref(),
+        )
+        .await
+    }
+}
+
+struct Buffer<R: AsyncRead + Unpin> {
     reader: R,
     buf: Box<[u8]>,
     level: usize,
 }
 
-impl<R: std::io::Read> Buffer<R> {
+impl<R: AsyncRead + Unpin> Buffer<R> {
     fn new(size: usize, reader: R) -> Self {
         Self {
             reader,
@@ -18,10 +85,10 @@ impl<R: std::io::Read> Buffer<R> {
         }
     }
 
-    fn fill_buf(&mut self) -> Result<&[u8], std::io::Error> {
+    async fn fill_buf(&mut self) -> Result<&[u8], std::io::Error> {
         while self.level < self.buf.len() {
             let dst = &mut self.buf[self.level..];
-            let r = self.reader.read(dst)?;
+            let r = self.reader.read(dst).await?;
             if r == 0 {
                 break;
             } else {
@@ -41,22 +108,21 @@ impl<R: std::io::Read> Buffer<R> {
     }
 }
 
-/// Generic synchronous implementation of DFU.
+/// Generic asynchronous implementation of DFU.
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
-pub struct DfuSync<IO, E>
+pub struct DfuASync<IO, E>
 where
-    IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
+    IO: DfuAsyncIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
     io: IO,
     dfu: DfuSansIo,
     buffer: Vec<u8>,
-    progress: Option<Box<dyn FnMut(usize)>>,
 }
 
-impl<IO, E> DfuSync<IO, E>
+impl<IO, E> DfuASync<IO, E>
 where
-    IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
+    IO: DfuAsyncIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
     /// Create a new instance of a generic synchronous implementation of DFU.
@@ -68,7 +134,6 @@ where
             io,
             dfu: DfuSansIo::new(descriptor),
             buffer: vec![0x00; transfer_size],
-            progress: None,
         }
     }
 
@@ -80,25 +145,19 @@ where
         self
     }
 
-    /// Use this closure to show progress.
-    pub fn with_progress(&mut self, progress: impl FnMut(usize) + 'static) -> &mut Self {
-        self.progress = Some(Box::new(progress));
-        self
-    }
-
     /// Consume the object and return its [`DfuIo`]
     pub fn into_inner(self) -> IO {
         self.io
     }
 }
 
-impl<IO, E> DfuSync<IO, E>
+impl<IO, E> DfuASync<IO, E>
 where
-    IO: DfuIo<Read = usize, Write = usize, Reset = (), Error = E>,
+    IO: DfuAsyncIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
     /// Download a firmware into the device from a slice.
-    pub fn download_from_slice(&mut self, slice: &[u8]) -> Result<(), IO::Error> {
+    pub async fn download_from_slice(&mut self, slice: &[u8]) -> Result<(), IO::Error> {
         let length = slice.len();
         let cursor = Cursor::new(slice);
 
@@ -106,13 +165,18 @@ where
             cursor,
             u32::try_from(length).map_err(|_| Error::OutOfCapabilities)?,
         )
+        .await
     }
 
     /// Download a firmware into the device from a reader.
-    pub fn download<R: std::io::Read>(&mut self, reader: R, length: u32) -> Result<(), IO::Error> {
+    pub async fn download<R: AsyncReadExt + Unpin>(
+        &mut self,
+        reader: R,
+        length: u32,
+    ) -> Result<(), IO::Error> {
         let transfer_size = self.io.functional_descriptor().transfer_size as usize;
         let mut reader = Buffer::new(transfer_size, reader);
-        let buffer = reader.fill_buf()?;
+        let buffer = reader.fill_buf().await?;
         if buffer.is_empty() {
             return Ok(());
         }
@@ -126,7 +190,7 @@ where
                         get_status::Step::Wait(cmd, poll_timeout) => {
                             std::thread::sleep(std::time::Duration::from_millis(poll_timeout));
                             let (cmd, mut control) = cmd.get_status(&mut self.buffer);
-                            let n = control.execute(&self.io)?;
+                            let n = control.execute_async(&self.io).await?;
                             cmd.chain(&self.buffer[..n as usize])??
                         }
                     };
@@ -136,13 +200,13 @@ where
 
         let cmd = self.dfu.download(self.io.protocol(), length)?;
         let (cmd, mut control) = cmd.get_status(&mut self.buffer);
-        let n = control.execute(&self.io)?;
+        let n = control.execute_async(&self.io).await?;
         let (cmd, control) = cmd.chain(&self.buffer[..n])?;
         if let Some(control) = control {
-            control.execute(&self.io)?;
+            control.execute_async(&self.io).await?;
         }
         let (cmd, mut control) = cmd.get_status(&mut self.buffer);
-        let n = control.execute(&self.io)?;
+        let n = control.execute_async(&self.io).await?;
         let mut download_loop = cmd.chain(&self.buffer[..n])??;
 
         loop {
@@ -150,27 +214,24 @@ where
                 download::Step::Break => break,
                 download::Step::Erase(cmd) => {
                     let (cmd, control) = cmd.erase()?;
-                    control.execute(&self.io)?;
+                    control.execute_async(&self.io).await?;
                     wait_status!(cmd)
                 }
                 download::Step::SetAddress(cmd) => {
                     let (cmd, control) = cmd.set_address();
-                    control.execute(&self.io)?;
+                    control.execute_async(&self.io).await?;
                     wait_status!(cmd)
                 }
                 download::Step::DownloadChunk(cmd) => {
-                    let chunk = reader.fill_buf()?;
+                    let chunk = reader.fill_buf().await?;
                     let (cmd, control) = cmd.download(chunk)?;
-                    let n = control.execute(&self.io)?;
+                    let n = control.execute_async(&self.io).await?;
                     reader.consume(n);
-                    if let Some(progress) = self.progress.as_mut() {
-                        progress(n);
-                    }
                     wait_status!(cmd)
                 }
                 download::Step::UsbReset => {
                     log::trace!("Device reset");
-                    self.io.usb_reset()?;
+                    self.io.usb_reset().await?;
                     break;
                 }
             }
@@ -181,26 +242,26 @@ where
 
     /// Download a firmware into the device.
     ///
-    /// The length is guest from the reader.
-    pub fn download_all<R: std::io::Read + std::io::Seek>(
+    /// The length is guess from the reader.
+    pub async fn download_all<R: AsyncReadExt + Unpin + AsyncSeek>(
         &mut self,
         mut reader: R,
     ) -> Result<(), IO::Error> {
-        let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0))?)
+        let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0)).await?)
             .map_err(|_| Error::MaximumTransferSizeExceeded)?;
-        reader.seek(std::io::SeekFrom::Start(0))?;
-        self.download(reader, length)
+        reader.seek(std::io::SeekFrom::Start(0)).await?;
+        self.download(reader, length).await
     }
 
     /// Send a Detach request to the device
-    pub fn detach(&self) -> Result<(), IO::Error> {
-        self.dfu.detach().execute(&self.io)?;
+    pub async fn detach(&self) -> Result<(), IO::Error> {
+        self.dfu.detach().execute_async(&self.io).await?;
         Ok(())
     }
 
     /// Reset the USB device
-    pub fn usb_reset(&self) -> Result<IO::Reset, IO::Error> {
-        self.io.usb_reset()
+    pub async fn usb_reset(&self) -> Result<IO::Reset, IO::Error> {
+        self.io.usb_reset().await
     }
 
     /// Returns whether the device is will detach if requested

@@ -1,9 +1,9 @@
-use std::{cell::RefCell, convert::TryFrom};
+use std::{convert::TryFrom, sync::Mutex};
 
 use bytes::{Buf, BufMut};
 use dfu_core::{
-    functional_descriptor::FunctionalDescriptor, memory_layout::MemoryLayout, DfuProtocol, State,
-    Status,
+    functional_descriptor::FunctionalDescriptor, memory_layout::MemoryLayout, DfuIo, DfuProtocol,
+    State, Status,
 };
 use num_derive::FromPrimitive;
 use num_traits::FromPrimitive;
@@ -80,7 +80,7 @@ impl MockIOBuilder {
             dfu_version,
         };
 
-        let inner = RefCell::new(MockIOInner {
+        let inner = Mutex::new(MockIOInner {
             state: State::DfuIdle,
             status: Status::Ok,
             download: Vec::new(),
@@ -116,7 +116,7 @@ struct MockIOInner {
 pub struct MockIO {
     functional_descriptor: FunctionalDescriptor,
     protocol: DfuProtocol<MemoryLayout>,
-    inner: RefCell<MockIOInner>,
+    inner: Mutex<MockIOInner>,
     address: Option<u32>,
 }
 
@@ -156,20 +156,20 @@ impl MockIO {
             })
             .expect("Trying to erase after flash");
 
-        let mut inner = self.inner.borrow_mut();
+        let mut inner = self.inner.lock().unwrap();
         inner.erased.push((address, page_size));
     }
 
     fn state(&self) -> State {
-        self.inner.borrow().state
+        self.inner.lock().unwrap().state
     }
 
     fn update_state(&self, state: State) {
-        self.inner.borrow_mut().state = state;
+        self.inner.lock().unwrap().state = state;
     }
 
     pub fn status(&self) -> Status {
-        self.inner.borrow().status
+        self.inner.lock().unwrap().status
     }
 
     fn translate_address(&self, address: u32) -> u32 {
@@ -189,7 +189,7 @@ impl MockIO {
     }
 
     fn download_request_dfu(&self, blocknum: u16, buffer: &[u8]) {
-        let mut inner = self.inner.borrow_mut();
+        let mut inner = self.inner.lock().unwrap();
         assert_eq!(inner.writes, blocknum);
         inner.busy = inner.writes % 4;
         inner.writes += 1;
@@ -204,7 +204,7 @@ impl MockIO {
     }
 
     fn check_erasures(&self, buffer: &[u8]) {
-        let inner = self.inner.borrow_mut();
+        let inner = self.inner.lock().unwrap();
         let mut start = inner.download.len() as u32;
         let end = start + buffer.len() as u32;
         'l: loop {
@@ -230,7 +230,7 @@ impl MockIO {
                     // set address
                     let addr = buffer[1..].as_ref().get_u32_le();
                     let addr = self.translate_address(addr);
-                    assert_eq!(addr, self.inner.borrow().download.len() as u32);
+                    assert_eq!(addr, self.inner.lock().unwrap().download.len() as u32);
                 }
                 0x41 => {
                     // erase page
@@ -256,7 +256,7 @@ impl MockIO {
     }
 
     pub fn downloaded(self) -> Vec<u8> {
-        self.inner.into_inner().download
+        self.inner.lock().unwrap().download.clone()
     }
 
     pub fn completed(&self) -> bool {
@@ -264,15 +264,15 @@ impl MockIO {
     }
 
     pub fn was_reset(&self) -> bool {
-        self.inner.borrow().was_reset
+        self.inner.lock().unwrap().was_reset
     }
 
     pub fn busy_cycles(&self, cycles: u16) {
-        self.inner.borrow_mut().busy = cycles;
+        self.inner.lock().unwrap().busy = cycles;
     }
 
     pub fn still_busy(&self) -> bool {
-        let mut inner = self.inner.borrow_mut();
+        let mut inner = self.inner.lock().unwrap();
         if inner.busy > 0 {
             inner.busy -= 1;
             true
@@ -290,7 +290,7 @@ pub enum Error {
     IO(#[from] std::io::Error),
 }
 
-impl dfu_core::DfuIo for MockIO {
+impl DfuIo for MockIO {
     type Read = usize;
     type Write = usize;
     type Reset = ();
@@ -366,7 +366,7 @@ impl dfu_core::DfuIo for MockIO {
     }
 
     fn usb_reset(&self) -> Result<Self::Reset, Self::Error> {
-        self.inner.borrow_mut().was_reset = true;
+        self.inner.lock().unwrap().was_reset = true;
         assert_eq!(
             self.state(),
             State::DfuManifestWaitReset,
@@ -383,5 +383,46 @@ impl dfu_core::DfuIo for MockIO {
 
     fn protocol(&self) -> &dfu_core::DfuProtocol<Self::MemoryLayout> {
         &self.protocol
+    }
+}
+
+#[cfg(feature = "async")]
+impl dfu_core::asynchronous::DfuAsyncIo for MockIO {
+    type Read = usize;
+    type Write = usize;
+    type Reset = ();
+    type Error = Error;
+    type MemoryLayout = MemoryLayout;
+
+    async fn read_control(
+        &self,
+        request_type: u8,
+        request: u8,
+        value: u16,
+        buffer: &mut [u8],
+    ) -> Result<Self::Read, Self::Error> {
+        DfuIo::read_control(self, request_type, request, value, buffer)
+    }
+
+    async fn write_control(
+        &self,
+        request_type: u8,
+        request: u8,
+        value: u16,
+        buffer: &[u8],
+    ) -> Result<Self::Write, Self::Error> {
+        DfuIo::write_control(self, request_type, request, value, buffer)
+    }
+
+    async fn usb_reset(&self) -> Result<Self::Reset, Self::Error> {
+        DfuIo::usb_reset(self)
+    }
+
+    fn functional_descriptor(&self) -> &dfu_core::functional_descriptor::FunctionalDescriptor {
+        DfuIo::functional_descriptor(self)
+    }
+
+    fn protocol(&self) -> &dfu_core::DfuProtocol<Self::MemoryLayout> {
+        DfuIo::protocol(self)
     }
 }
