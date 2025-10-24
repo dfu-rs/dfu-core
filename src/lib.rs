@@ -474,7 +474,6 @@ impl<'a> UsbReadControl<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::prelude::v1::*;
 
     // ensure DfuIo can be made into an object
     const _: [&dyn DfuIo<Read = (), Write = (), Reset = (), MemoryLayout = (), Error = Error>; 0] =

@@ -26,7 +26,7 @@ pub struct GetStatus<T: ChainedCommand<Arg = GetStatusMessage>> {
 
 impl<T: ChainedCommand<Arg = GetStatusMessage>> GetStatus<T> {
     /// Query the status of the device.
-    pub fn get_status(self, buffer: &mut [u8]) -> (GetStatusRecv<T>, UsbReadControl) {
+    pub fn get_status(self, buffer: &'_ mut [u8]) -> (GetStatusRecv<T>, UsbReadControl<'_>) {
         debug_assert!(buffer.len() >= 6);
         let next = GetStatusRecv {
             chained_command: self.chained_command,
