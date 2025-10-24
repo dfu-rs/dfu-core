@@ -418,6 +418,8 @@ impl dfu_core::asynchronous::DfuAsyncIo for MockIO {
         DfuIo::usb_reset(self)
     }
 
+    async fn sleep(&self, _: std::time::Duration) {}
+
     fn functional_descriptor(&self) -> &dfu_core::functional_descriptor::FunctionalDescriptor {
         DfuIo::functional_descriptor(self)
     }

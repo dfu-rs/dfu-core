@@ -1,6 +1,10 @@
 Changelog
 =========
 
+## v0.6.0
+
+- Leave asynchronous sleep implementation up to the user instead of using blocking `std::thread::sleep` 
+
 ## v0.5.0
 
 - Add tests (#18)

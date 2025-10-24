@@ -39,6 +39,9 @@ pub trait DfuAsyncIo {
     /// Triggers a USB reset.
     fn usb_reset(&self) -> impl Future<Output = Result<Self::Reset, Self::Error>> + Send;
 
+    /// Sleep for this duration of time.
+    fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send;
+
     /// Returns the protocol of the device
     fn protocol(&self) -> &DfuProtocol<Self::MemoryLayout>;
 
@@ -188,7 +191,9 @@ where
                     cmd = match cmd.next() {
                         get_status::Step::Break(cmd) => break cmd,
                         get_status::Step::Wait(cmd, poll_timeout) => {
-                            std::thread::sleep(std::time::Duration::from_millis(poll_timeout));
+                            self.io
+                                .sleep(std::time::Duration::from_millis(poll_timeout))
+                                .await;
                             let (cmd, mut control) = cmd.get_status(&mut self.buffer);
                             let n = control.execute_async(&self.io).await?;
                             cmd.chain(&self.buffer[..n as usize])??
