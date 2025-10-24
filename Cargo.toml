@@ -14,7 +14,7 @@ autotests = false
 
 [dependencies]
 bytes = "1"
-displaydoc = "0.2"
+displaydoc = "0.2.5"
 futures = {version = "0.3.31", optional = true }
 log = "0.4"
 pretty-hex = "0.3"
