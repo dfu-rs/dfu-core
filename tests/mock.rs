@@ -1,4 +1,3 @@
-use core::future::Future;
 use std::{convert::TryFrom, sync::Mutex};
 
 use bytes::{Buf, BufMut};
@@ -419,7 +418,7 @@ impl dfu_core::asynchronous::DfuAsyncIo for MockIO {
         DfuIo::usb_reset(self)
     }
 
-    fn sleep(&self, _: std::time::Duration) -> impl Future<Output = ()> + Send {}
+    async fn sleep(&self, _: std::time::Duration) {}
 
     fn functional_descriptor(&self) -> &dfu_core::functional_descriptor::FunctionalDescriptor {
         DfuIo::functional_descriptor(self)
