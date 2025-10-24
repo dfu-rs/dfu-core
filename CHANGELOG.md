@@ -1,9 +1,17 @@
 Changelog
 =========
 
+## v0.8.0
+
+- `std::thread::sleep` should not be used in `async` context (#28)
+
+## v0.7.0
+
+- Add async support to dfu-core (#27)
+
 ## v0.6.0
 
-- Leave asynchronous sleep implementation up to the user instead of using blocking `std::thread::sleep` 
+- Add the ability to override download address (#25)
 
 ## v0.5.0
 
