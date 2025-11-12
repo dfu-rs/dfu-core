@@ -48,8 +48,6 @@ pub enum Error {
     MaximumTransferSizeExceeded,
     /// Erasing limit reached.
     EraseLimitReached,
-    /// Maximum number of chunks exceeded.
-    MaximumChunksExceeded,
     /// Not enough space on device.
     NoSpaceLeft,
     /// Unrecognized status code: {0}

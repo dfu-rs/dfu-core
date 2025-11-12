@@ -303,8 +303,7 @@ impl<'dfu> DownloadChunk<'dfu> {
                 protocol: self.protocol,
                 block_num: self
                     .block_num
-                    .checked_add(1)
-                    .ok_or(Error::MaximumChunksExceeded)?,
+                    .wrapping_add(1),
                 eof: bytes.is_empty(),
             },
         );
