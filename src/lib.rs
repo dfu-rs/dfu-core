@@ -37,6 +37,7 @@ use thiserror::Error;
 #[derive(Debug, Display)]
 #[cfg_attr(any(feature = "std", test), derive(Error))]
 #[allow(missing_docs)]
+#[non_exhaustive]
 pub enum Error {
     /// The size of the data being transferred exceeds the DFU capabilities.
     OutOfCapabilities,
