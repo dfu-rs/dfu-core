@@ -365,7 +365,7 @@ impl DfuIo for MockIO {
         }
     }
 
-    fn usb_reset(&self) -> Result<Self::Reset, Self::Error> {
+    fn usb_reset(&mut self) -> Result<Self::Reset, Self::Error> {
         self.inner.lock().unwrap().was_reset = true;
         assert_eq!(
             self.state(),
