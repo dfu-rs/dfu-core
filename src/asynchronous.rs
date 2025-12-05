@@ -265,7 +265,7 @@ where
     }
 
     /// Reset the USB device
-    pub async fn usb_reset(&self) -> Result<IO::Reset, IO::Error> {
+    pub async fn usb_reset(&mut self) -> Result<IO::Reset, IO::Error> {
         self.io.usb_reset().await
     }
 
