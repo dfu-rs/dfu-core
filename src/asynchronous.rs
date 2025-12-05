@@ -37,7 +37,7 @@ pub trait DfuAsyncIo {
     ) -> impl Future<Output = Result<Self::Write, Self::Error>> + Send;
 
     /// Triggers a USB reset.
-    fn usb_reset(&self) -> impl Future<Output = Result<Self::Reset, Self::Error>> + Send;
+    fn usb_reset(&mut self) -> impl Future<Output = Result<Self::Reset, Self::Error>> + Send;
 
     /// Sleep for this duration of time.
     fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send;
