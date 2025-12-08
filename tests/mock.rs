@@ -414,7 +414,7 @@ impl dfu_core::asynchronous::DfuAsyncIo for MockIO {
         DfuIo::write_control(self, request_type, request, value, buffer)
     }
 
-    async fn usb_reset(&self) -> Result<Self::Reset, Self::Error> {
+    async fn usb_reset(&mut self) -> Result<Self::Reset, Self::Error> {
         DfuIo::usb_reset(self)
     }
 
