@@ -104,7 +104,7 @@ pub trait DfuIo {
     ) -> Result<Self::Write, Self::Error>;
 
     /// Triggers a USB reset.
-    fn usb_reset(&self) -> Result<Self::Reset, Self::Error>;
+    fn usb_reset(&mut self) -> Result<Self::Reset, Self::Error>;
 
     /// Returns the protocol of the device
     fn protocol(&self) -> &DfuProtocol<Self::MemoryLayout>;
