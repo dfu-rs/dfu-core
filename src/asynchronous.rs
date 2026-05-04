@@ -165,6 +165,9 @@ where
     /// returns, the device will have left the bus (either via a host-triggered USB reset or by
     /// self-detaching via `will_detach`). The handle is consumed and cannot be reused.
     ///
+    /// If `slice` is empty, this returns `Ok(())` immediately without performing a USB reset —
+    /// the device remains on the bus.
+    ///
     /// Errors with [`Error::ManifestationTolerant`] if the device has `bitManifestationTolerant`
     /// set. Use [`Self::download_from_slice_tolerant`] or [`Self::download_from_slice_auto`] for
     /// tolerant devices.
@@ -217,6 +220,9 @@ where
     /// returns, the device will have left the bus (either via a host-triggered USB reset or by
     /// self-detaching via `will_detach`). The handle is consumed and cannot be reused.
     ///
+    /// If `length` is zero or the reader yields no bytes on the first read, this returns `Ok(())`
+    /// immediately without performing a USB reset — the device remains on the bus.
+    ///
     /// Errors with [`Error::ManifestationTolerant`] if the device has `bitManifestationTolerant`
     /// set. Use [`Self::download_tolerant`] or [`Self::download_auto`] for tolerant devices.
     pub async fn download<R: AsyncReadExt + Unpin>(
@@ -247,7 +253,7 @@ where
         }
         self.download_auto(reader, length)
             .await
-            .map(|opt| opt.expect("tolerant device unexpectedly performed USB reset"))
+            .and_then(|opt| opt.ok_or_else(|| Error::UnexpectedUsbReset.into()))
     }
 
     /// Download a firmware into the device from a reader.

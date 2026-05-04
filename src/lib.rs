@@ -74,6 +74,8 @@ pub enum Error {
     ManifestationTolerant,
     /// Device is not manifestation tolerant but a tolerant download was requested.
     NotManifestationTolerant,
+    /// Device performed an unexpected USB reset during a tolerant download.
+    UnexpectedUsbReset,
 }
 
 /// Trait to implement lower level communication with a USB device.
