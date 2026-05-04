@@ -79,7 +79,7 @@ async fn test_simple_download(mock: MockIO) {
     }
 
     let dfu = dfu
-        .download_dynamic(cursor, firmware.len() as u32)
+        .download_auto(cursor, firmware.len() as u32)
         .await
         .unwrap();
 

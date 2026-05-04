@@ -99,8 +99,13 @@ where
 {
     /// Download a firmware into the device from a slice.
     ///
-    /// Errors if the device is manifestation tolerant. Use [`Self::download_from_slice_tolerant`]
-    /// or [`Self::download_from_slice_dynamic`] for tolerant devices.
+    /// Use this when the device does **not** have `bitManifestationTolerant` set. After this
+    /// returns, the device will have left the bus (either via a host-triggered USB reset or by
+    /// self-detaching via `will_detach`). The handle is consumed and cannot be reused.
+    ///
+    /// Errors with [`Error::ManifestationTolerant`] if the device has `bitManifestationTolerant`
+    /// set. Use [`Self::download_from_slice_tolerant`] or [`Self::download_from_slice_auto`] for
+    /// tolerant devices.
     pub fn download_from_slice(self, slice: &[u8]) -> Result<(), IO::Error> {
         let length = slice.len();
         let cursor = Cursor::new(slice);
@@ -112,8 +117,11 @@ where
 
     /// Download a firmware into the device from a slice.
     ///
-    /// Errors if the device is not manifestation tolerant. Returns `Self` so the handle can be
-    /// reused after download.
+    /// Use this when the device has `bitManifestationTolerant` set. The device stays on the bus
+    /// after flashing, and this method returns `Self` so the handle can be reused.
+    ///
+    /// Errors with [`Error::NotManifestationTolerant`] if the device does not have
+    /// `bitManifestationTolerant` set.
     pub fn download_from_slice_tolerant(self, slice: &[u8]) -> Result<Self, IO::Error> {
         let length = slice.len();
         let cursor = Cursor::new(slice);
@@ -125,12 +133,14 @@ where
 
     /// Download a firmware into the device from a slice.
     ///
-    /// Returns `Some(Self)` if no USB reset occurred (manifestation tolerant device) or `None` if
-    /// a USB reset was performed. No tolerance check is done.
-    pub fn download_from_slice_dynamic(self, slice: &[u8]) -> Result<Option<Self>, IO::Error> {
+    /// No `bitManifestationTolerant` check is performed. Returns `Some(Self)` if the device stayed
+    /// on the bus (tolerant device, no USB reset occurred) or `None` if a USB reset was performed.
+    /// Use this when you don't know the device type at compile time or want to handle both cases
+    /// yourself.
+    pub fn download_from_slice_auto(self, slice: &[u8]) -> Result<Option<Self>, IO::Error> {
         let length = slice.len();
         let cursor = Cursor::new(slice);
-        self.download_dynamic(
+        self.download_auto(
             cursor,
             u32::try_from(length).map_err(|_| Error::OutOfCapabilities)?,
         )
@@ -138,19 +148,26 @@ where
 
     /// Download a firmware into the device from a reader.
     ///
-    /// Errors if the device is manifestation tolerant. Use [`Self::download_tolerant`] or
-    /// [`Self::download_dynamic`] for tolerant devices.
+    /// Use this when the device does **not** have `bitManifestationTolerant` set. After this
+    /// returns, the device will have left the bus (either via a host-triggered USB reset or by
+    /// self-detaching via `will_detach`). The handle is consumed and cannot be reused.
+    ///
+    /// Errors with [`Error::ManifestationTolerant`] if the device has `bitManifestationTolerant`
+    /// set. Use [`Self::download_tolerant`] or [`Self::download_auto`] for tolerant devices.
     pub fn download<R: std::io::Read>(self, reader: R, length: u32) -> Result<(), IO::Error> {
         if self.io.functional_descriptor().manifestation_tolerant {
             return Err(Error::ManifestationTolerant.into());
         }
-        self.download_dynamic(reader, length).map(|_| ())
+        self.download_auto(reader, length).map(|_| ())
     }
 
     /// Download a firmware into the device from a reader.
     ///
-    /// Errors if the device is not manifestation tolerant. Returns `Self` so the handle can be
-    /// reused after download.
+    /// Use this when the device has `bitManifestationTolerant` set. The device stays on the bus
+    /// after flashing, and this method returns `Self` so the handle can be reused.
+    ///
+    /// Errors with [`Error::NotManifestationTolerant`] if the device does not have
+    /// `bitManifestationTolerant` set.
     pub fn download_tolerant<R: std::io::Read>(
         self,
         reader: R,
@@ -159,15 +176,17 @@ where
         if !self.io.functional_descriptor().manifestation_tolerant {
             return Err(Error::NotManifestationTolerant.into());
         }
-        self.download_dynamic(reader, length)
+        self.download_auto(reader, length)
             .map(|opt| opt.expect("tolerant device unexpectedly performed USB reset"))
     }
 
     /// Download a firmware into the device from a reader.
     ///
-    /// Returns `Some(Self)` if no USB reset occurred (manifestation tolerant device) or `None` if
-    /// a USB reset was performed. No tolerance check is done.
-    pub fn download_dynamic<R: std::io::Read>(
+    /// No `bitManifestationTolerant` check is performed. Returns `Some(Self)` if the device stayed
+    /// on the bus (tolerant device, no USB reset occurred) or `None` if a USB reset was performed.
+    /// Use this when you don't know the device type at compile time or want to handle both cases
+    /// yourself.
+    pub fn download_auto<R: std::io::Read>(
         mut self,
         reader: R,
         length: u32,
@@ -242,8 +261,13 @@ where
 
     /// Download a firmware into the device.
     ///
-    /// The length is inferred from the reader. Errors if the device is manifestation tolerant.
-    /// Use [`Self::download_all_tolerant`] or [`Self::download_all_dynamic`] for tolerant devices.
+    /// The length is inferred from the reader. Use this when the device does **not** have
+    /// `bitManifestationTolerant` set. After this returns, the device will have left the bus.
+    /// The handle is consumed and cannot be reused.
+    ///
+    /// Errors with [`Error::ManifestationTolerant`] if the device has `bitManifestationTolerant`
+    /// set. Use [`Self::download_all_tolerant`] or [`Self::download_all_auto`] for tolerant
+    /// devices.
     pub fn download_all<R: std::io::Read + std::io::Seek>(
         self,
         mut reader: R,
@@ -256,8 +280,12 @@ where
 
     /// Download a firmware into the device.
     ///
-    /// The length is inferred from the reader. Errors if the device is not manifestation tolerant.
-    /// Returns `Self` so the handle can be reused after download.
+    /// The length is inferred from the reader. Use this when the device has
+    /// `bitManifestationTolerant` set. The device stays on the bus after flashing, and this method
+    /// returns `Self` so the handle can be reused.
+    ///
+    /// Errors with [`Error::NotManifestationTolerant`] if the device does not have
+    /// `bitManifestationTolerant` set.
     pub fn download_all_tolerant<R: std::io::Read + std::io::Seek>(
         self,
         mut reader: R,
@@ -270,16 +298,18 @@ where
 
     /// Download a firmware into the device.
     ///
-    /// The length is inferred from the reader. Returns `Some(Self)` if no USB reset occurred or
-    /// `None` if a USB reset was performed. No tolerance check is done.
-    pub fn download_all_dynamic<R: std::io::Read + std::io::Seek>(
+    /// The length is inferred from the reader. No `bitManifestationTolerant` check is performed.
+    /// Returns `Some(Self)` if the device stayed on the bus or `None` if a USB reset was
+    /// performed. Use this when you don't know the device type at compile time or want to handle
+    /// both cases yourself.
+    pub fn download_all_auto<R: std::io::Read + std::io::Seek>(
         self,
         mut reader: R,
     ) -> Result<Option<Self>, IO::Error> {
         let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0))?)
             .map_err(|_| Error::MaximumTransferSizeExceeded)?;
         reader.seek(std::io::SeekFrom::Start(0))?;
-        self.download_dynamic(reader, length)
+        self.download_auto(reader, length)
     }
 
     /// Send a Detach request to the device
@@ -293,7 +323,7 @@ where
         self.io.usb_reset()
     }
 
-    /// Returns whether the device is will detach if requested
+    /// Returns whether the device will detach if requested
     pub fn will_detach(&self) -> bool {
         self.io.functional_descriptor().will_detach
     }

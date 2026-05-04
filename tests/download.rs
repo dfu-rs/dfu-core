@@ -72,7 +72,7 @@ fn test_simple_download(mock: MockIO) {
         dfu.override_address(address);
     }
 
-    let dfu = dfu.download_dynamic(cursor, firmware.len() as u32).unwrap();
+    let dfu = dfu.download_auto(cursor, firmware.len() as u32).unwrap();
 
     assert_eq!(
         mock_data.was_reset(),
