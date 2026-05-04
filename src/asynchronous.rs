@@ -160,10 +160,13 @@ where
     E: From<std::io::Error> + From<Error>,
 {
     /// Download a firmware into the device from a slice.
-    pub async fn download_from_slice(self, slice: &[u8]) -> Result<Option<Self>, IO::Error> {
+    ///
+    /// Errors if the device is manifestation tolerant. Use
+    /// [`Self::download_from_slice_tolerant`] or [`Self::download_from_slice_dynamic`] for
+    /// tolerant devices.
+    pub async fn download_from_slice(self, slice: &[u8]) -> Result<(), IO::Error> {
         let length = slice.len();
         let cursor = Cursor::new(slice);
-
         self.download(
             cursor,
             u32::try_from(length).map_err(|_| Error::OutOfCapabilities)?,
@@ -171,8 +174,74 @@ where
         .await
     }
 
+    /// Download a firmware into the device from a slice.
+    ///
+    /// Errors if the device is not manifestation tolerant. Returns `Self` so the handle can be
+    /// reused after download.
+    pub async fn download_from_slice_tolerant(self, slice: &[u8]) -> Result<Self, IO::Error> {
+        let length = slice.len();
+        let cursor = Cursor::new(slice);
+        self.download_tolerant(
+            cursor,
+            u32::try_from(length).map_err(|_| Error::OutOfCapabilities)?,
+        )
+        .await
+    }
+
+    /// Download a firmware into the device from a slice.
+    ///
+    /// Returns `Some(Self)` if no USB reset occurred (manifestation tolerant device) or `None` if
+    /// a USB reset was performed. No tolerance check is done.
+    pub async fn download_from_slice_dynamic(
+        self,
+        slice: &[u8],
+    ) -> Result<Option<Self>, IO::Error> {
+        let length = slice.len();
+        let cursor = Cursor::new(slice);
+        self.download_dynamic(
+            cursor,
+            u32::try_from(length).map_err(|_| Error::OutOfCapabilities)?,
+        )
+        .await
+    }
+
     /// Download a firmware into the device from a reader.
+    ///
+    /// Errors if the device is manifestation tolerant. Use [`Self::download_tolerant`] or
+    /// [`Self::download_dynamic`] for tolerant devices.
     pub async fn download<R: AsyncReadExt + Unpin>(
+        self,
+        reader: R,
+        length: u32,
+    ) -> Result<(), IO::Error> {
+        if self.io.functional_descriptor().manifestation_tolerant {
+            return Err(Error::ManifestationTolerant.into());
+        }
+        self.download_dynamic(reader, length).await.map(|_| ())
+    }
+
+    /// Download a firmware into the device from a reader.
+    ///
+    /// Errors if the device is not manifestation tolerant. Returns `Self` so the handle can be
+    /// reused after download.
+    pub async fn download_tolerant<R: AsyncReadExt + Unpin>(
+        self,
+        reader: R,
+        length: u32,
+    ) -> Result<Self, IO::Error> {
+        if !self.io.functional_descriptor().manifestation_tolerant {
+            return Err(Error::NotManifestationTolerant.into());
+        }
+        self.download_dynamic(reader, length)
+            .await
+            .map(|opt| opt.expect("tolerant device unexpectedly performed USB reset"))
+    }
+
+    /// Download a firmware into the device from a reader.
+    ///
+    /// Returns `Some(Self)` if no USB reset occurred (manifestation tolerant device) or `None` if
+    /// a USB reset was performed. No tolerance check is done.
+    pub async fn download_dynamic<R: AsyncReadExt + Unpin>(
         mut self,
         reader: R,
         length: u32,
@@ -236,7 +305,8 @@ where
                 }
                 download::Step::UsbReset => {
                     log::trace!("Device reset");
-                    self.io.usb_reset().await?;
+                    let DfuASync { io, .. } = self;
+                    io.usb_reset().await?;
                     break Ok(None);
                 }
             }
@@ -245,15 +315,44 @@ where
 
     /// Download a firmware into the device.
     ///
-    /// The length is guess from the reader.
+    /// The length is inferred from the reader. Errors if the device is manifestation tolerant.
+    /// Use [`Self::download_all_tolerant`] or [`Self::download_all_dynamic`] for tolerant devices.
     pub async fn download_all<R: AsyncReadExt + Unpin + AsyncSeek>(
+        self,
+        mut reader: R,
+    ) -> Result<(), IO::Error> {
+        let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0)).await?)
+            .map_err(|_| Error::MaximumTransferSizeExceeded)?;
+        reader.seek(std::io::SeekFrom::Start(0)).await?;
+        self.download(reader, length).await
+    }
+
+    /// Download a firmware into the device.
+    ///
+    /// The length is inferred from the reader. Errors if the device is not manifestation tolerant.
+    /// Returns `Self` so the handle can be reused after download.
+    pub async fn download_all_tolerant<R: AsyncReadExt + Unpin + AsyncSeek>(
+        self,
+        mut reader: R,
+    ) -> Result<Self, IO::Error> {
+        let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0)).await?)
+            .map_err(|_| Error::MaximumTransferSizeExceeded)?;
+        reader.seek(std::io::SeekFrom::Start(0)).await?;
+        self.download_tolerant(reader, length).await
+    }
+
+    /// Download a firmware into the device.
+    ///
+    /// The length is inferred from the reader. Returns `Some(Self)` if no USB reset occurred or
+    /// `None` if a USB reset was performed. No tolerance check is done.
+    pub async fn download_all_dynamic<R: AsyncReadExt + Unpin + AsyncSeek>(
         self,
         mut reader: R,
     ) -> Result<Option<Self>, IO::Error> {
         let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0)).await?)
             .map_err(|_| Error::MaximumTransferSizeExceeded)?;
         reader.seek(std::io::SeekFrom::Start(0)).await?;
-        self.download(reader, length).await
+        self.download_dynamic(reader, length).await
     }
 
     /// Send a Detach request to the device

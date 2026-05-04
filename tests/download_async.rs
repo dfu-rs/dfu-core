@@ -56,13 +56,18 @@ fn setup() {
         .try_init();
 }
 
-async fn test_simple_download(mock: MockIO) {
-    let size = mock.size();
-    let address = mock.address();
+fn make_firmware(size: u32) -> Vec<u8> {
     let mut firmware = Vec::with_capacity(size as usize);
     for i in 0..size {
         firmware.push(i as u8);
     }
+    firmware
+}
+
+async fn test_simple_download(mock: MockIO) {
+    let size = mock.size();
+    let address = mock.address();
+    let firmware = make_firmware(size);
 
     let cursor = TestCursor::new(&firmware);
     let descriptor = *mock.functional_descriptor();
@@ -73,13 +78,42 @@ async fn test_simple_download(mock: MockIO) {
         dfu.override_address(address);
     }
 
-    let dfu = dfu.download(cursor, firmware.len() as u32).await.unwrap();
+    let dfu = dfu
+        .download_dynamic(cursor, firmware.len() as u32)
+        .await
+        .unwrap();
 
     assert_eq!(
         mock_data.was_reset(),
         !descriptor.manifestation_tolerant && !descriptor.will_detach
     );
     assert_eq!(mock_data.was_reset(), dfu.is_none());
+    assert!(mock_data.completed());
+    assert_eq!(firmware, mock_data.downloaded().as_slice());
+}
+
+async fn test_typed_download_non_tolerant(mock: MockIO) {
+    let size = mock.size();
+    let firmware = make_firmware(size);
+    let cursor = TestCursor::new(&firmware);
+    let mock_data = mock.data();
+    let dfu = dfu_core::asynchronous::DfuASync::new(mock);
+    dfu.download(cursor, firmware.len() as u32).await.unwrap();
+    assert!(mock_data.completed());
+    assert_eq!(firmware, mock_data.downloaded().as_slice());
+}
+
+async fn test_typed_download_tolerant(mock: MockIO) {
+    let size = mock.size();
+    let firmware = make_firmware(size);
+    let cursor = TestCursor::new(&firmware);
+    let mock_data = mock.data();
+    let dfu = dfu_core::asynchronous::DfuASync::new(mock);
+    let _dfu = dfu
+        .download_tolerant(cursor, firmware.len() as u32)
+        .await
+        .unwrap();
+    assert!(!mock_data.was_reset());
     assert!(mock_data.completed());
     assert_eq!(firmware, mock_data.downloaded().as_slice());
 }
@@ -176,4 +210,76 @@ async fn override_address_dfuse() {
         .dfuse(true)
         .build();
     test_simple_download(mock).await;
+}
+
+// --- typed download/download_tolerant ---
+
+#[test]
+async fn download_non_tolerant_succeeds() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .will_detach(false)
+        .manifestation_tolerant(false)
+        .build();
+    test_typed_download_non_tolerant(mock).await;
+}
+
+#[test]
+async fn download_errors_when_tolerant() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .manifestation_tolerant(true)
+        .build();
+    let size = mock.size();
+    let firmware = make_firmware(size);
+    let cursor = TestCursor::new(&firmware);
+    let dfu = dfu_core::asynchronous::DfuASync::new(mock);
+    let err = dfu
+        .download(cursor, firmware.len() as u32)
+        .await
+        .err()
+        .expect("expected ManifestationTolerant error");
+    assert!(
+        matches!(
+            err,
+            mock::Error::Dfu(dfu_core::Error::ManifestationTolerant)
+        ),
+        "unexpected error: {:?}",
+        err
+    );
+}
+
+#[test]
+async fn download_tolerant_succeeds() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .will_detach(false)
+        .manifestation_tolerant(true)
+        .build();
+    test_typed_download_tolerant(mock).await;
+}
+
+#[test]
+async fn download_tolerant_errors_when_not_tolerant() {
+    setup();
+    let mock = mock::MockIOBuilder::default()
+        .manifestation_tolerant(false)
+        .build();
+    let size = mock.size();
+    let firmware = make_firmware(size);
+    let cursor = TestCursor::new(&firmware);
+    let dfu = dfu_core::asynchronous::DfuASync::new(mock);
+    let err = dfu
+        .download_tolerant(cursor, firmware.len() as u32)
+        .await
+        .err()
+        .expect("expected NotManifestationTolerant error");
+    assert!(
+        matches!(
+            err,
+            mock::Error::Dfu(dfu_core::Error::NotManifestationTolerant)
+        ),
+        "unexpected error: {:?}",
+        err
+    );
 }
