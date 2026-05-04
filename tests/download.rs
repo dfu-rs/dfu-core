@@ -227,8 +227,7 @@ fn download_errors_when_tolerant() {
     let dfu = dfu_core::sync::DfuSync::new(mock);
     let err = dfu
         .download(cursor, firmware.len() as u32)
-        .err()
-        .expect("expected ManifestationTolerant error");
+        .expect_err("expected ManifestationTolerant error");
     assert!(
         matches!(
             err,
@@ -261,8 +260,8 @@ fn download_tolerant_errors_when_not_tolerant() {
     let dfu = dfu_core::sync::DfuSync::new(mock);
     let err = dfu
         .download_tolerant(cursor, firmware.len() as u32)
-        .err()
-        .expect("expected NotManifestationTolerant error");
+        .map(|_| ())
+        .expect_err("expected NotManifestationTolerant error");
     assert!(
         matches!(
             err,

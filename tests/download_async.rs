@@ -72,7 +72,7 @@ async fn test_simple_download(mock: MockIO) {
     let cursor = TestCursor::new(&firmware);
     let descriptor = *mock.functional_descriptor();
     let mock_data = mock.data();
-    let mut dfu = dfu_core::asynchronous::DfuASync::new(mock);
+    let mut dfu = dfu_core::asynchronous::DfuAsync::new(mock);
 
     if let Some(address) = address {
         dfu.override_address(address);
@@ -97,7 +97,7 @@ async fn test_typed_download_non_tolerant(mock: MockIO) {
     let firmware = make_firmware(size);
     let cursor = TestCursor::new(&firmware);
     let mock_data = mock.data();
-    let dfu = dfu_core::asynchronous::DfuASync::new(mock);
+    let dfu = dfu_core::asynchronous::DfuAsync::new(mock);
     dfu.download(cursor, firmware.len() as u32).await.unwrap();
     assert!(mock_data.completed());
     assert_eq!(firmware, mock_data.downloaded().as_slice());
@@ -108,7 +108,7 @@ async fn test_typed_download_tolerant(mock: MockIO) {
     let firmware = make_firmware(size);
     let cursor = TestCursor::new(&firmware);
     let mock_data = mock.data();
-    let dfu = dfu_core::asynchronous::DfuASync::new(mock);
+    let dfu = dfu_core::asynchronous::DfuAsync::new(mock);
     let _dfu = dfu
         .download_tolerant(cursor, firmware.len() as u32)
         .await
@@ -233,12 +233,11 @@ async fn download_errors_when_tolerant() {
     let size = mock.size();
     let firmware = make_firmware(size);
     let cursor = TestCursor::new(&firmware);
-    let dfu = dfu_core::asynchronous::DfuASync::new(mock);
+    let dfu = dfu_core::asynchronous::DfuAsync::new(mock);
     let err = dfu
         .download(cursor, firmware.len() as u32)
         .await
-        .err()
-        .expect("expected ManifestationTolerant error");
+        .expect_err("expected ManifestationTolerant error");
     assert!(
         matches!(
             err,
@@ -268,12 +267,12 @@ async fn download_tolerant_errors_when_not_tolerant() {
     let size = mock.size();
     let firmware = make_firmware(size);
     let cursor = TestCursor::new(&firmware);
-    let dfu = dfu_core::asynchronous::DfuASync::new(mock);
+    let dfu = dfu_core::asynchronous::DfuAsync::new(mock);
     let err = dfu
         .download_tolerant(cursor, firmware.len() as u32)
         .await
-        .err()
-        .expect("expected NotManifestationTolerant error");
+        .map(|_| ())
+        .expect_err("expected NotManifestationTolerant error");
     assert!(
         matches!(
             err,

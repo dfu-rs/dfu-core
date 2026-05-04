@@ -139,7 +139,7 @@ impl MockIOData {
         )
     }
 
-    pub fn downloaded(self) -> Vec<u8> {
+    pub fn downloaded(&self) -> Vec<u8> {
         self.inner().download.clone()
     }
 }

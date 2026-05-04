@@ -113,7 +113,7 @@ impl<R: AsyncRead + Unpin> Buffer<R> {
 
 /// Generic asynchronous implementation of DFU.
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
-pub struct DfuASync<IO, E>
+pub struct DfuAsync<IO, E>
 where
     IO: DfuAsyncIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
@@ -123,7 +123,7 @@ where
     buffer: Vec<u8>,
 }
 
-impl<IO, E> DfuASync<IO, E>
+impl<IO, E> DfuAsync<IO, E>
 where
     IO: DfuAsyncIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
@@ -154,7 +154,7 @@ where
     }
 }
 
-impl<IO, E> DfuASync<IO, E>
+impl<IO, E> DfuAsync<IO, E>
 where
     IO: DfuAsyncIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
@@ -320,7 +320,7 @@ where
                 }
                 download::Step::UsbReset => {
                     log::trace!("Device reset");
-                    let DfuASync { io, .. } = self;
+                    let DfuAsync { io, .. } = self;
                     io.usb_reset().await?;
                     break Ok(None);
                 }
