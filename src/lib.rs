@@ -25,7 +25,7 @@ pub mod memory_layout;
 /// Generic synchronous implementation.
 #[cfg(any(feature = "std", test))]
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
-pub mod sync;
+pub mod synchronous;
 
 use core::convert::TryFrom;
 

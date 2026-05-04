@@ -66,7 +66,7 @@ fn test_simple_download(mock: MockIO) {
 
     let descriptor = *mock.functional_descriptor();
     let mock_data = mock.data();
-    let mut dfu = dfu_core::sync::DfuSync::new(mock);
+    let mut dfu = dfu_core::synchronous::DfuSync::new(mock);
 
     if let Some(address) = address {
         dfu.override_address(address);
@@ -89,7 +89,7 @@ fn test_typed_download_non_tolerant(mock: MockIO) {
     let firmware = make_firmware(size);
     let cursor = TestCursor::new(&firmware);
     let mock_data = mock.data();
-    let dfu = dfu_core::sync::DfuSync::new(mock);
+    let dfu = dfu_core::synchronous::DfuSync::new(mock);
     dfu.download(cursor, firmware.len() as u32).unwrap();
     assert!(mock_data.completed());
     assert_eq!(firmware, mock_data.downloaded().as_slice());
@@ -100,7 +100,7 @@ fn test_typed_download_tolerant(mock: MockIO) {
     let firmware = make_firmware(size);
     let cursor = TestCursor::new(&firmware);
     let mock_data = mock.data();
-    let dfu = dfu_core::sync::DfuSync::new(mock);
+    let dfu = dfu_core::synchronous::DfuSync::new(mock);
     let _dfu = dfu
         .download_tolerant(cursor, firmware.len() as u32)
         .unwrap();
@@ -224,7 +224,7 @@ fn download_errors_when_tolerant() {
     let size = mock.size();
     let firmware = make_firmware(size);
     let cursor = TestCursor::new(&firmware);
-    let dfu = dfu_core::sync::DfuSync::new(mock);
+    let dfu = dfu_core::synchronous::DfuSync::new(mock);
     let err = dfu
         .download(cursor, firmware.len() as u32)
         .expect_err("expected ManifestationTolerant error");
@@ -257,7 +257,7 @@ fn download_tolerant_errors_when_not_tolerant() {
     let size = mock.size();
     let firmware = make_firmware(size);
     let cursor = TestCursor::new(&firmware);
-    let dfu = dfu_core::sync::DfuSync::new(mock);
+    let dfu = dfu_core::synchronous::DfuSync::new(mock);
     let err = dfu
         .download_tolerant(cursor, firmware.len() as u32)
         .map(|_| ())
