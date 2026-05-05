@@ -1,4 +1,7 @@
-use std::{convert::TryFrom, sync::Mutex};
+use std::{
+    convert::TryFrom,
+    sync::{Arc, Mutex, MutexGuard},
+};
 
 use bytes::{Buf, BufMut};
 use dfu_core::{
@@ -80,28 +83,19 @@ impl MockIOBuilder {
             dfu_version,
         };
 
-        let inner = Mutex::new(MockIOInner {
-            state: State::DfuIdle,
-            status: Status::Ok,
-            download: Vec::new(),
-            writes: 0,
-            erased: Vec::new(),
-            busy: 0,
-            was_reset: false,
-            saw_incomplete_write: false,
-        });
-
+        let data = MockIOData::new();
         let address = self.address;
 
         MockIO {
             functional_descriptor,
             protocol,
-            inner,
+            data,
             address,
         }
     }
 }
 
+#[derive(Debug)]
 struct MockIOInner {
     state: State,
     status: Status,
@@ -113,10 +107,47 @@ struct MockIOInner {
     saw_incomplete_write: bool,
 }
 
+#[derive(Debug, Clone)]
+pub struct MockIOData(Arc<Mutex<MockIOInner>>);
+
+impl MockIOData {
+    pub fn new() -> Self {
+        Self(Arc::new(Mutex::new(MockIOInner {
+            state: State::DfuIdle,
+            status: Status::Ok,
+            download: Vec::new(),
+            writes: 0,
+            erased: Vec::new(),
+            busy: 0,
+            was_reset: false,
+            saw_incomplete_write: false,
+        })))
+    }
+
+    fn inner(&self) -> MutexGuard<'_, MockIOInner> {
+        self.0.lock().unwrap()
+    }
+
+    pub fn was_reset(&self) -> bool {
+        self.inner().was_reset
+    }
+
+    pub fn completed(&self) -> bool {
+        matches!(
+            self.inner().state,
+            State::DfuManifestWaitReset | State::DfuIdle
+        )
+    }
+
+    pub fn downloaded(&self) -> Vec<u8> {
+        self.inner().download.clone()
+    }
+}
+
 pub struct MockIO {
     functional_descriptor: FunctionalDescriptor,
     protocol: DfuProtocol<MemoryLayout>,
-    inner: Mutex<MockIOInner>,
+    data: MockIOData,
     address: Option<u32>,
 }
 
@@ -132,6 +163,14 @@ impl MockIO {
 
     pub fn address(&self) -> Option<u32> {
         self.address
+    }
+
+    fn inner(&self) -> MutexGuard<'_, MockIOInner> {
+        self.data.inner()
+    }
+
+    pub fn data(&self) -> MockIOData {
+        self.data.clone()
     }
 
     fn erase_page(&self, address: u32) {
@@ -156,20 +195,19 @@ impl MockIO {
             })
             .expect("Trying to erase after flash");
 
-        let mut inner = self.inner.lock().unwrap();
-        inner.erased.push((address, page_size));
+        self.inner().erased.push((address, page_size));
     }
 
     fn state(&self) -> State {
-        self.inner.lock().unwrap().state
+        self.inner().state
     }
 
     fn update_state(&self, state: State) {
-        self.inner.lock().unwrap().state = state;
+        self.inner().state = state;
     }
 
     pub fn status(&self) -> Status {
-        self.inner.lock().unwrap().status
+        self.inner().status
     }
 
     fn translate_address(&self, address: u32) -> u32 {
@@ -189,7 +227,7 @@ impl MockIO {
     }
 
     fn download_request_dfu(&self, blocknum: u16, buffer: &[u8]) {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner();
         assert_eq!(inner.writes, blocknum);
         inner.busy = inner.writes % 4;
         inner.writes += 1;
@@ -204,7 +242,7 @@ impl MockIO {
     }
 
     fn check_erasures(&self, buffer: &[u8]) {
-        let inner = self.inner.lock().unwrap();
+        let inner = self.inner();
         let mut start = inner.download.len() as u32;
         let end = start + buffer.len() as u32;
         'l: loop {
@@ -230,7 +268,7 @@ impl MockIO {
                     // set address
                     let addr = buffer[1..].as_ref().get_u32_le();
                     let addr = self.translate_address(addr);
-                    assert_eq!(addr, self.inner.lock().unwrap().download.len() as u32);
+                    assert_eq!(addr, self.inner().download.len() as u32);
                 }
                 0x41 => {
                     // erase page
@@ -255,24 +293,12 @@ impl MockIO {
         }
     }
 
-    pub fn downloaded(self) -> Vec<u8> {
-        self.inner.lock().unwrap().download.clone()
-    }
-
-    pub fn completed(&self) -> bool {
-        matches!(self.state(), State::DfuManifestWaitReset | State::DfuIdle)
-    }
-
-    pub fn was_reset(&self) -> bool {
-        self.inner.lock().unwrap().was_reset
-    }
-
     pub fn busy_cycles(&self, cycles: u16) {
-        self.inner.lock().unwrap().busy = cycles;
+        self.inner().busy = cycles;
     }
 
     pub fn still_busy(&self) -> bool {
-        let mut inner = self.inner.lock().unwrap();
+        let mut inner = self.inner();
         if inner.busy > 0 {
             inner.busy -= 1;
             true
@@ -365,8 +391,8 @@ impl DfuIo for MockIO {
         }
     }
 
-    fn usb_reset(&mut self) -> Result<Self::Reset, Self::Error> {
-        self.inner.lock().unwrap().was_reset = true;
+    fn usb_reset(self) -> Result<Self::Reset, Self::Error> {
+        self.inner().was_reset = true;
         assert_eq!(
             self.state(),
             State::DfuManifestWaitReset,
@@ -414,7 +440,7 @@ impl dfu_core::asynchronous::DfuAsyncIo for MockIO {
         DfuIo::write_control(self, request_type, request, value, buffer)
     }
 
-    async fn usb_reset(&mut self) -> Result<Self::Reset, Self::Error> {
+    async fn usb_reset(self) -> Result<Self::Reset, Self::Error> {
         DfuIo::usb_reset(self)
     }
 

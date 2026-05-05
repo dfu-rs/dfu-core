@@ -37,7 +37,7 @@ pub trait DfuAsyncIo {
     ) -> impl Future<Output = Result<Self::Write, Self::Error>> + Send;
 
     /// Triggers a USB reset.
-    fn usb_reset(&mut self) -> impl Future<Output = Result<Self::Reset, Self::Error>> + Send;
+    fn usb_reset(self) -> impl Future<Output = Result<Self::Reset, Self::Error>> + Send;
 
     /// Sleep for this duration of time.
     fn sleep(&self, duration: std::time::Duration) -> impl Future<Output = ()> + Send;
@@ -113,7 +113,7 @@ impl<R: AsyncRead + Unpin> Buffer<R> {
 
 /// Generic asynchronous implementation of DFU.
 #[cfg_attr(docsrs, doc(cfg(feature = "std")))]
-pub struct DfuASync<IO, E>
+pub struct DfuAsync<IO, E>
 where
     IO: DfuAsyncIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
@@ -123,7 +123,7 @@ where
     buffer: Vec<u8>,
 }
 
-impl<IO, E> DfuASync<IO, E>
+impl<IO, E> DfuAsync<IO, E>
 where
     IO: DfuAsyncIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
@@ -154,16 +154,18 @@ where
     }
 }
 
-impl<IO, E> DfuASync<IO, E>
+impl<IO, E> DfuAsync<IO, E>
 where
     IO: DfuAsyncIo<Read = usize, Write = usize, Reset = (), Error = E>,
     E: From<std::io::Error> + From<Error>,
 {
     /// Download a firmware into the device from a slice.
-    pub async fn download_from_slice(&mut self, slice: &[u8]) -> Result<(), IO::Error> {
+    ///
+    /// Returns `Some(Self)` if the device stayed on the bus (manifestation tolerant, no USB reset
+    /// occurred) or `None` if a USB reset was performed.
+    pub async fn download_from_slice(self, slice: &[u8]) -> Result<Option<Self>, IO::Error> {
         let length = slice.len();
         let cursor = Cursor::new(slice);
-
         self.download(
             cursor,
             u32::try_from(length).map_err(|_| Error::OutOfCapabilities)?,
@@ -172,16 +174,19 @@ where
     }
 
     /// Download a firmware into the device from a reader.
+    ///
+    /// Returns `Some(Self)` if the device stayed on the bus (manifestation tolerant, no USB reset
+    /// occurred) or `None` if a USB reset was performed.
     pub async fn download<R: AsyncReadExt + Unpin>(
-        &mut self,
+        mut self,
         reader: R,
         length: u32,
-    ) -> Result<(), IO::Error> {
+    ) -> Result<Option<Self>, IO::Error> {
         let transfer_size = self.io.functional_descriptor().transfer_size as usize;
         let mut reader = Buffer::new(transfer_size, reader);
         let buffer = reader.fill_buf().await?;
         if buffer.is_empty() {
-            return Ok(());
+            return Ok(Some(self));
         }
 
         macro_rules! wait_status {
@@ -216,7 +221,7 @@ where
 
         loop {
             download_loop = match download_loop.next() {
-                download::Step::Break => break,
+                download::Step::Break => break Ok(Some(self)),
                 download::Step::Erase(cmd) => {
                     let (cmd, control) = cmd.erase()?;
                     control.execute_async(&self.io).await?;
@@ -237,21 +242,20 @@ where
                 download::Step::UsbReset => {
                     log::trace!("Device reset");
                     self.io.usb_reset().await?;
-                    break;
+                    break Ok(None);
                 }
             }
         }
-
-        Ok(())
     }
 
     /// Download a firmware into the device.
     ///
-    /// The length is guess from the reader.
+    /// The length is inferred from the reader. Returns `Some(Self)` if the device stayed on the
+    /// bus (manifestation tolerant, no USB reset occurred) or `None` if a USB reset was performed.
     pub async fn download_all<R: AsyncReadExt + Unpin + AsyncSeek>(
-        &mut self,
+        self,
         mut reader: R,
-    ) -> Result<(), IO::Error> {
+    ) -> Result<Option<Self>, IO::Error> {
         let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0)).await?)
             .map_err(|_| Error::MaximumTransferSizeExceeded)?;
         reader.seek(std::io::SeekFrom::Start(0)).await?;
@@ -265,11 +269,11 @@ where
     }
 
     /// Reset the USB device
-    pub async fn usb_reset(&mut self) -> Result<IO::Reset, IO::Error> {
+    pub async fn usb_reset(self) -> Result<IO::Reset, IO::Error> {
         self.io.usb_reset().await
     }
 
-    /// Returns whether the device is will detach if requested
+    /// Returns whether the device will detach if requested
     pub fn will_detach(&self) -> bool {
         self.io.functional_descriptor().will_detach
     }

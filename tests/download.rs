@@ -49,32 +49,39 @@ fn setup() {
         .try_init();
 }
 
-fn test_simple_download(mock: MockIO) {
-    let size = mock.size();
-    let address = mock.address();
+fn make_firmware(size: u32) -> Vec<u8> {
     let mut firmware = Vec::with_capacity(size as usize);
     for i in 0..size {
         firmware.push(i as u8);
     }
+    firmware
+}
+
+fn test_simple_download(mock: MockIO) {
+    let size = mock.size();
+    let address = mock.address();
+    let firmware = make_firmware(size);
 
     let cursor = TestCursor::new(&firmware);
-    let mut dfu = dfu_core::sync::DfuSync::new(mock);
+
+    let descriptor = *mock.functional_descriptor();
+    let mock_data = mock.data();
+    let mut dfu = dfu_core::synchronous::DfuSync::new(mock);
 
     if let Some(address) = address {
         dfu.override_address(address);
     }
 
-    dfu.download(cursor, firmware.len() as u32).unwrap();
-    let mock = dfu.into_inner();
-
-    let descriptor = mock.functional_descriptor();
+    let dfu = dfu.download(cursor, firmware.len() as u32).unwrap();
 
     assert_eq!(
-        mock.was_reset(),
+        mock_data.was_reset(),
         !descriptor.manifestation_tolerant && !descriptor.will_detach
     );
-    assert!(mock.completed());
-    assert_eq!(firmware, mock.downloaded().as_slice());
+
+    assert_eq!(mock_data.was_reset(), dfu.is_none());
+    assert!(mock_data.completed());
+    assert_eq!(firmware, mock_data.downloaded().as_slice());
 }
 
 #[test]
