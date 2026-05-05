@@ -72,7 +72,7 @@ fn test_simple_download(mock: MockIO) {
         dfu.override_address(address);
     }
 
-    let dfu = dfu.download_auto(cursor, firmware.len() as u32).unwrap();
+    let dfu = dfu.download(cursor, firmware.len() as u32).unwrap();
 
     assert_eq!(
         mock_data.was_reset(),
@@ -80,31 +80,6 @@ fn test_simple_download(mock: MockIO) {
     );
 
     assert_eq!(mock_data.was_reset(), dfu.is_none());
-    assert!(mock_data.completed());
-    assert_eq!(firmware, mock_data.downloaded().as_slice());
-}
-
-fn test_typed_download_non_tolerant(mock: MockIO) {
-    let size = mock.size();
-    let firmware = make_firmware(size);
-    let cursor = TestCursor::new(&firmware);
-    let mock_data = mock.data();
-    let dfu = dfu_core::synchronous::DfuSync::new(mock);
-    dfu.download(cursor, firmware.len() as u32).unwrap();
-    assert!(mock_data.completed());
-    assert_eq!(firmware, mock_data.downloaded().as_slice());
-}
-
-fn test_typed_download_tolerant(mock: MockIO) {
-    let size = mock.size();
-    let firmware = make_firmware(size);
-    let cursor = TestCursor::new(&firmware);
-    let mock_data = mock.data();
-    let dfu = dfu_core::synchronous::DfuSync::new(mock);
-    let _dfu = dfu
-        .download_tolerant(cursor, firmware.len() as u32)
-        .unwrap();
-    assert!(!mock_data.was_reset());
     assert!(mock_data.completed());
     assert_eq!(firmware, mock_data.downloaded().as_slice());
 }
@@ -201,73 +176,4 @@ fn override_address_dfuse() {
         .dfuse(true)
         .build();
     test_simple_download(mock);
-}
-
-// --- typed download/download_tolerant ---
-
-#[test]
-fn download_non_tolerant_succeeds() {
-    setup();
-    let mock = mock::MockIOBuilder::default()
-        .will_detach(false)
-        .manifestation_tolerant(false)
-        .build();
-    test_typed_download_non_tolerant(mock);
-}
-
-#[test]
-fn download_errors_when_tolerant() {
-    setup();
-    let mock = mock::MockIOBuilder::default()
-        .manifestation_tolerant(true)
-        .build();
-    let size = mock.size();
-    let firmware = make_firmware(size);
-    let cursor = TestCursor::new(&firmware);
-    let dfu = dfu_core::synchronous::DfuSync::new(mock);
-    let err = dfu
-        .download(cursor, firmware.len() as u32)
-        .expect_err("expected ManifestationTolerant error");
-    assert!(
-        matches!(
-            err,
-            mock::Error::Dfu(dfu_core::Error::ManifestationTolerant)
-        ),
-        "unexpected error: {:?}",
-        err
-    );
-}
-
-#[test]
-fn download_tolerant_succeeds() {
-    setup();
-    let mock = mock::MockIOBuilder::default()
-        .will_detach(false)
-        .manifestation_tolerant(true)
-        .build();
-    test_typed_download_tolerant(mock);
-}
-
-#[test]
-fn download_tolerant_errors_when_not_tolerant() {
-    setup();
-    let mock = mock::MockIOBuilder::default()
-        .manifestation_tolerant(false)
-        .build();
-    let size = mock.size();
-    let firmware = make_firmware(size);
-    let cursor = TestCursor::new(&firmware);
-    let dfu = dfu_core::synchronous::DfuSync::new(mock);
-    let err = dfu
-        .download_tolerant(cursor, firmware.len() as u32)
-        .map(|_| ())
-        .expect_err("expected NotManifestationTolerant error");
-    assert!(
-        matches!(
-            err,
-            mock::Error::Dfu(dfu_core::Error::NotManifestationTolerant)
-        ),
-        "unexpected error: {:?}",
-        err
-    );
 }

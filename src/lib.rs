@@ -70,12 +70,6 @@ pub enum Error {
     MemoryLayout(memory_layout::Error),
     /// Failed to parse dfuse address from interface string
     InvalidAddress,
-    /// Device is manifestation tolerant but a non-tolerant download was requested.
-    ManifestationTolerant,
-    /// Device is not manifestation tolerant but a tolerant download was requested.
-    NotManifestationTolerant,
-    /// Device performed an unexpected USB reset during a tolerant download.
-    UnexpectedUsbReset,
 }
 
 /// Trait to implement lower level communication with a USB device.

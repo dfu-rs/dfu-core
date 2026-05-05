@@ -161,17 +161,9 @@ where
 {
     /// Download a firmware into the device from a slice.
     ///
-    /// Use this when the device does **not** have `bitManifestationTolerant` set. After this
-    /// returns, the device will have left the bus (either via a host-triggered USB reset or by
-    /// self-detaching via `will_detach`). The handle is consumed and cannot be reused.
-    ///
-    /// If `slice` is empty, this returns `Ok(())` immediately without performing a USB reset —
-    /// the device remains on the bus.
-    ///
-    /// Errors with [`Error::ManifestationTolerant`] if the device has `bitManifestationTolerant`
-    /// set. Use [`Self::download_from_slice_tolerant`] or [`Self::download_from_slice_auto`] for
-    /// tolerant devices.
-    pub async fn download_from_slice(self, slice: &[u8]) -> Result<(), IO::Error> {
+    /// Returns `Some(Self)` if the device stayed on the bus (manifestation tolerant, no USB reset
+    /// occurred) or `None` if a USB reset was performed.
+    pub async fn download_from_slice(self, slice: &[u8]) -> Result<Option<Self>, IO::Error> {
         let length = slice.len();
         let cursor = Cursor::new(slice);
         self.download(
@@ -181,88 +173,11 @@ where
         .await
     }
 
-    /// Download a firmware into the device from a slice.
-    ///
-    /// Use this when the device has `bitManifestationTolerant` set. The device stays on the bus
-    /// after flashing, and this method returns `Self` so the handle can be reused.
-    ///
-    /// Errors with [`Error::NotManifestationTolerant`] if the device does not have
-    /// `bitManifestationTolerant` set.
-    pub async fn download_from_slice_tolerant(self, slice: &[u8]) -> Result<Self, IO::Error> {
-        let length = slice.len();
-        let cursor = Cursor::new(slice);
-        self.download_tolerant(
-            cursor,
-            u32::try_from(length).map_err(|_| Error::OutOfCapabilities)?,
-        )
-        .await
-    }
-
-    /// Download a firmware into the device from a slice.
-    ///
-    /// No `bitManifestationTolerant` check is performed. Returns `Some(Self)` if the device stayed
-    /// on the bus (tolerant device, no USB reset occurred) or `None` if a USB reset was performed.
-    /// Use this when you don't know the device type at compile time or want to handle both cases
-    /// yourself.
-    pub async fn download_from_slice_auto(self, slice: &[u8]) -> Result<Option<Self>, IO::Error> {
-        let length = slice.len();
-        let cursor = Cursor::new(slice);
-        self.download_auto(
-            cursor,
-            u32::try_from(length).map_err(|_| Error::OutOfCapabilities)?,
-        )
-        .await
-    }
-
     /// Download a firmware into the device from a reader.
     ///
-    /// Use this when the device does **not** have `bitManifestationTolerant` set. After this
-    /// returns, the device will have left the bus (either via a host-triggered USB reset or by
-    /// self-detaching via `will_detach`). The handle is consumed and cannot be reused.
-    ///
-    /// If `length` is zero or the reader yields no bytes on the first read, this returns `Ok(())`
-    /// immediately without performing a USB reset — the device remains on the bus.
-    ///
-    /// Errors with [`Error::ManifestationTolerant`] if the device has `bitManifestationTolerant`
-    /// set. Use [`Self::download_tolerant`] or [`Self::download_auto`] for tolerant devices.
+    /// Returns `Some(Self)` if the device stayed on the bus (manifestation tolerant, no USB reset
+    /// occurred) or `None` if a USB reset was performed.
     pub async fn download<R: AsyncReadExt + Unpin>(
-        self,
-        reader: R,
-        length: u32,
-    ) -> Result<(), IO::Error> {
-        if self.io.functional_descriptor().manifestation_tolerant {
-            return Err(Error::ManifestationTolerant.into());
-        }
-        self.download_auto(reader, length).await.map(|_| ())
-    }
-
-    /// Download a firmware into the device from a reader.
-    ///
-    /// Use this when the device has `bitManifestationTolerant` set. The device stays on the bus
-    /// after flashing, and this method returns `Self` so the handle can be reused.
-    ///
-    /// Errors with [`Error::NotManifestationTolerant`] if the device does not have
-    /// `bitManifestationTolerant` set.
-    pub async fn download_tolerant<R: AsyncReadExt + Unpin>(
-        self,
-        reader: R,
-        length: u32,
-    ) -> Result<Self, IO::Error> {
-        if !self.io.functional_descriptor().manifestation_tolerant {
-            return Err(Error::NotManifestationTolerant.into());
-        }
-        self.download_auto(reader, length)
-            .await
-            .and_then(|opt| opt.ok_or_else(|| Error::UnexpectedUsbReset.into()))
-    }
-
-    /// Download a firmware into the device from a reader.
-    ///
-    /// No `bitManifestationTolerant` check is performed. Returns `Some(Self)` if the device stayed
-    /// on the bus (tolerant device, no USB reset occurred) or `None` if a USB reset was performed.
-    /// Use this when you don't know the device type at compile time or want to handle both cases
-    /// yourself.
-    pub async fn download_auto<R: AsyncReadExt + Unpin>(
         mut self,
         reader: R,
         length: u32,
@@ -335,55 +250,16 @@ where
 
     /// Download a firmware into the device.
     ///
-    /// The length is inferred from the reader. Use this when the device does **not** have
-    /// `bitManifestationTolerant` set. After this returns, the device will have left the bus.
-    /// The handle is consumed and cannot be reused.
-    ///
-    /// Errors with [`Error::ManifestationTolerant`] if the device has `bitManifestationTolerant`
-    /// set. Use [`Self::download_all_tolerant`] or [`Self::download_all_auto`] for tolerant
-    /// devices.
+    /// The length is inferred from the reader. Returns `Some(Self)` if the device stayed on the
+    /// bus (manifestation tolerant, no USB reset occurred) or `None` if a USB reset was performed.
     pub async fn download_all<R: AsyncReadExt + Unpin + AsyncSeek>(
-        self,
-        mut reader: R,
-    ) -> Result<(), IO::Error> {
-        let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0)).await?)
-            .map_err(|_| Error::MaximumTransferSizeExceeded)?;
-        reader.seek(std::io::SeekFrom::Start(0)).await?;
-        self.download(reader, length).await
-    }
-
-    /// Download a firmware into the device.
-    ///
-    /// The length is inferred from the reader. Use this when the device has
-    /// `bitManifestationTolerant` set. The device stays on the bus after flashing, and this method
-    /// returns `Self` so the handle can be reused.
-    ///
-    /// Errors with [`Error::NotManifestationTolerant`] if the device does not have
-    /// `bitManifestationTolerant` set.
-    pub async fn download_all_tolerant<R: AsyncReadExt + Unpin + AsyncSeek>(
-        self,
-        mut reader: R,
-    ) -> Result<Self, IO::Error> {
-        let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0)).await?)
-            .map_err(|_| Error::MaximumTransferSizeExceeded)?;
-        reader.seek(std::io::SeekFrom::Start(0)).await?;
-        self.download_tolerant(reader, length).await
-    }
-
-    /// Download a firmware into the device.
-    ///
-    /// The length is inferred from the reader. No `bitManifestationTolerant` check is performed.
-    /// Returns `Some(Self)` if the device stayed on the bus or `None` if a USB reset was
-    /// performed. Use this when you don't know the device type at compile time or want to handle
-    /// both cases yourself.
-    pub async fn download_all_auto<R: AsyncReadExt + Unpin + AsyncSeek>(
         self,
         mut reader: R,
     ) -> Result<Option<Self>, IO::Error> {
         let length = u32::try_from(reader.seek(std::io::SeekFrom::End(0)).await?)
             .map_err(|_| Error::MaximumTransferSizeExceeded)?;
         reader.seek(std::io::SeekFrom::Start(0)).await?;
-        self.download_auto(reader, length).await
+        self.download(reader, length).await
     }
 
     /// Send a Detach request to the device
