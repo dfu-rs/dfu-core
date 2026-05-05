@@ -179,8 +179,7 @@ where
                 }
                 download::Step::UsbReset => {
                     log::trace!("Device reset");
-                    let DfuSync { io, .. } = self;
-                    io.usb_reset()?;
+                    self.io.usb_reset()?;
                     break Ok(None);
                 }
             }
