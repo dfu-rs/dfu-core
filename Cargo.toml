@@ -2,7 +2,7 @@
 name = "dfu-core"
 version = "0.10.0"
 authors = ["Cecile Tonglet <cecile.tonglet@cecton.com>"]
-edition = "2018"
+edition = "2021"
 license = "MIT OR Apache-2.0"
 description = "Sans IO core library (traits and tools) for DFU"
 repository = "https://github.com/dfu-rs/dfu-core"
@@ -11,6 +11,7 @@ documentation = "https://docs.rs/dfu-core"
 readme = "README.md"
 keywords = ["dfu", "sans-io", "nostd"]
 autotests = false
+rust-version = "1.71"
 
 [dependencies]
 bytes = "1.11.1"
