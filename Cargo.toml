@@ -18,7 +18,7 @@ displaydoc = "0.2.5"
 futures = {version = "0.3.31", optional = true }
 log = "0.4"
 pretty-hex = "0.3"
-thiserror = { version = "1", optional = true }
+thiserror = { version = "2.0.18", optional = true }
 
 [dev-dependencies]
 dfu-core = { path = ".", features = [ "std" ] }
@@ -26,7 +26,7 @@ env_logger = "0.10.0"
 futures-test = "0.3.31"
 num-derive = "0.4.2"
 num-traits = "0.2.15"
-thiserror = "1"
+thiserror = "2.0.18"
 
 [features]
 std = ["dep:thiserror"]
