@@ -22,7 +22,7 @@ thiserror = { version = "2.0.18", optional = true }
 
 [dev-dependencies]
 dfu-core = { path = ".", features = [ "std" ] }
-env_logger = "0.10.0"
+env_logger = "0.11.10"
 futures-test = "0.3.31"
 num-derive = "0.4.2"
 num-traits = "0.2.15"
