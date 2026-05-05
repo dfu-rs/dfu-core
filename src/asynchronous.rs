@@ -326,8 +326,7 @@ where
                 }
                 download::Step::UsbReset => {
                     log::trace!("Device reset");
-                    let DfuAsync { io, .. } = self;
-                    io.usb_reset().await?;
+                    self.io.usb_reset().await?;
                     break Ok(None);
                 }
             }
