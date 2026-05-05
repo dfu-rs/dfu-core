@@ -2,7 +2,7 @@
 [![Latest Version](https://img.shields.io/crates/v/dfu-core.svg)](https://crates.io/crates/dfu-core)
 ![License](https://img.shields.io/crates/l/dfu-core)
 [![Docs.rs](https://docs.rs/dfu-core/badge.svg)](https://docs.rs/dfu-core)
-[![LOC](https://tokei.rs/b1/github/dfu-rs/dfu-core)](https://github.com/dfu-rs/dfu-core)
+[![Keep a Changelog](https://img.shields.io/badge/changelog-Keep%20a%20Changelog-%23E05735)](CHANGELOG.md)
 [![Dependency Status](https://deps.rs/repo/github/dfu-rs/dfu-core/status.svg)](https://deps.rs/repo/github/dfu-rs/dfu-core)
 
 dfu-core
