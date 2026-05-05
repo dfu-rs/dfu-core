@@ -8,42 +8,76 @@
 dfu-core
 ========
 
-Sans IO core library (traits and tools) for DFU.
+A sans-IO, `no_std`-compatible core library implementing the DFU protocol state machine.
+
+The library drives the full DFU protocol logic — including DFU 1.1 and the STM32 DfuSe
+extension — but never touches USB directly. Instead, you supply a transport by implementing
+`DfuIo` (or `DfuAsyncIo`), and the library tells you exactly which control transfers to
+perform and in what order. This makes it runtime-agnostic and usable in `no_std` environments.
+
+If you are looking for a ready-to-use CLI tool or a higher-level crate that already has a
+USB backend wired up, see:
+
+- [`dfu-nusb`](https://crates.io/crates/dfu-nusb) — recommended, built on [`nusb`](https://crates.io/crates/nusb)
+- [`dfu-libusb`](https://crates.io/crates/dfu-libusb) — built on [`libusb`](https://crates.io/crates/libusb)
+
+Feature Flags
+-------------
+
+| Feature | Description |
+|---------|-------------|
+| *(none)* | `no_std` core: state machine, `DfuIo`, `DfuSansIo`, `FunctionalDescriptor`, `MemoryPage`, `mem` |
+| `std` | Adds `MemoryLayout`, `std::error::Error` impls, `DfuProtocol::new()`, and `DfuSync` |
+| `async` | Adds `DfuAsyncIo` and `DfuAsync` (implies `std`) |
+
+API Overview
+------------
+
+**Implement one of these traits** to provide the USB transport:
+
+- `trait DfuIo` — synchronous transport (control reads, control writes, USB reset)
+- `trait DfuAsyncIo` — async transport, same operations plus a `sleep` method
+  (requires feature `async`)
+
+**Choose your level of abstraction** for the protocol logic:
+
+- `struct DfuSync` — high-level synchronous wrapper; call `download()`,
+  `download_all()`, or `download_from_slice()` and it handles the rest
+  (requires feature `std`)
+- `struct DfuAsync` — high-level async wrapper, mirrors `DfuSync`
+  (requires feature `async`)
+- `struct DfuSansIo` — low-level sans-IO state machine for `no_std` or when
+  you need explicit control over each USB transaction; returns typed command
+  objects (`UsbWriteControl`, `UsbReadControl`) that you execute yourself
+
+**Supporting types:**
+
+- `enum DfuProtocol` — selects between DFU 1.1 (`Dfu`) and STM32 DfuSe (`Dfuse`)
+- `struct FunctionalDescriptor` — parsed from the extra bytes of a USB DFU
+  functional descriptor; drives protocol decisions (transfer size, detach
+  behaviour, manifestation tolerance)
+- `type MemoryPage` and `type mem` — primitives representing the memory layout
+  of the device (analogous to `char` and `str`)
+- `struct MemoryLayout` — owned, heap-allocated memory layout that can parse
+  the STM32 memory layout interface string (requires feature `std`)
 
 Features
 --------
 
- -  [x] `no_std` compatible
- -  [x] async and sync compatible
- -  [x] write a firmware into a device (DFU download)
- -  [ ] read a firmware from a device (DFU upload)
- -  [x] minimal dependencies
- -  [x] uses a state machine to ensure the implementations are correctly done
+- [x] `no_std` compatible
+- [x] sync and async compatible
+- [x] write a firmware into a device (DFU download)
+- [ ] read a firmware from a device (DFU upload)
+- [x] minimal dependencies
+- [x] uses a state machine to ensure implementations are correct
 
-Traits & Structs
-----------------
+DFU Specifications
+------------------
 
- -  `trait DfuIo`: a trait that can be made into an object that provides the IO
-    to this library logic.
- -  `struct DfuSansIo`: a struct that allows the developer to do the DFU logic
-    using a state machine (can be async or sync).
- -  `struct DfuSync`: a basic sync implementation that uses a `DfuIo` provided
-    in argument during runtime.
- -  `type MemoryPage` and `type mem`: primitives representing the memory layout
-    of the device (like `char` and `str`).
- -  `struct MemoryLayout`: (requires features `std`) an allocated
-    representation of the memory layout (like `String`) that can parse a
-    memory layout from a string.
- -  `FunctionalDescriptor`: can read the extra bytes of a USB functional
-    descriptor to provide information for the DFU logic.
+This crate is based on the following specifications:
 
-DFU Documentation
------------------
-
-This crate has been made based on the following specifications:
-
- *  DFU 1.1 (Aug 5 2004): https://www.usb.org/sites/default/files/DFU_1.1.pdf
- *  STM32/DfuSe extensions: https://www.st.com/content/ccc/resource/technical/document/user_manual/cc/6d/c3/43/ea/29/4b/eb/CD00135281.pdf/files/CD00135281.pdf/jcr:content/translations/en.CD00135281.pdf
+- [DFU 1.1 (Aug 5 2004)](https://www.usb.org/sites/default/files/DFU_1.1.pdf)
+- [STM32 DfuSe extensions](https://www.st.com/content/ccc/resource/technical/document/user_manual/cc/6d/c3/43/ea/29/4b/eb/CD00135281.pdf/files/CD00135281.pdf/jcr:content/translations/en.CD00135281.pdf)
 
 License
 -------
