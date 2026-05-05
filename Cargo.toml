@@ -17,7 +17,7 @@ bytes = "1"
 displaydoc = "0.2.5"
 futures = {version = "0.3.31", optional = true }
 log = "0.4"
-pretty-hex = "0.3"
+pretty-hex = "0.4.2"
 thiserror = { version = "2.0.18", optional = true }
 
 [dev-dependencies]
