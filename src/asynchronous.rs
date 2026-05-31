@@ -121,6 +121,7 @@ where
     io: IO,
     dfu: DfuSansIo,
     buffer: Vec<u8>,
+    progress: Option<Box<dyn FnMut(usize) + Send>>,
 }
 
 impl<IO, E> DfuAsync<IO, E>
@@ -137,6 +138,7 @@ where
             io,
             dfu: DfuSansIo::new(descriptor),
             buffer: vec![0x00; transfer_size],
+            progress: None,
         }
     }
 
@@ -145,6 +147,12 @@ where
     /// This address is only used if the device uses the DfuSe protocol.
     pub fn override_address(&mut self, address: u32) -> &mut Self {
         self.dfu.set_address(address);
+        self
+    }
+
+    /// Use this closure to show progress.
+    pub fn with_progress(&mut self, progress: impl FnMut(usize) + Send + 'static) -> &mut Self {
+        self.progress = Some(Box::new(progress));
         self
     }
 
@@ -237,6 +245,9 @@ where
                     let (cmd, control) = cmd.download(chunk)?;
                     let n = control.execute_async(&self.io).await?;
                     reader.consume(n);
+                    if let Some(progress) = self.progress.as_mut() {
+                        progress(n);
+                    }
                     wait_status!(cmd)
                 }
                 download::Step::UsbReset => {
