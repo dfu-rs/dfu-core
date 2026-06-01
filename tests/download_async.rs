@@ -90,6 +90,28 @@ async fn test_simple_download(mock: MockIO) {
 }
 
 #[test]
+async fn reports_progress() {
+    setup();
+
+    let mock = mock::MockIOBuilder::default().build();
+    let firmware = make_firmware(mock.size());
+    let cursor = TestCursor::new(&firmware);
+    let progress = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+
+    let mut dfu = dfu_core::asynchronous::DfuAsync::new(mock);
+    let progress_clone = progress.clone();
+    dfu.with_progress(move |n| {
+        progress_clone.lock().unwrap().push(n);
+    });
+
+    dfu.download(cursor, firmware.len() as u32).await.unwrap();
+
+    let progress = progress.lock().unwrap();
+    assert_eq!(progress.iter().sum::<usize>(), firmware.len());
+    assert_eq!(progress.last(), Some(&0));
+}
+
+#[test]
 async fn no_will_detach_and_no_manifestation_toleration() {
     setup();
     let mock = mock::MockIOBuilder::default()
